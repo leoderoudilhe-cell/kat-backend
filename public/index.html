@@ -773,6 +773,18 @@ input, textarea { font-family: inherit; }
       </div>
     </div>
   </div>
+  <div class="settings-section">
+    <div style="background:var(--card);border-radius:var(--radius-sm);overflow:hidden">
+      <div class="settings-row" onclick="forceSyncNow()" style="cursor:pointer">
+        <span class="settings-row-icon" style="font-size:20px">🔄</span>
+        <div style="flex:1">
+          <div class="settings-row-label">Forcer la synchronisation</div>
+          <div style="font-size:12px;color:var(--text2)">Pousse toutes les données locales vers le serveur</div>
+        </div>
+        <span class="settings-row-arrow">›</span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -3557,6 +3569,20 @@ async function autoSyncFromApple() {
 boot();
 
 // ═══ COURSES ═══
+async function forceSyncNow() {
+  toast('🔄 Synchronisation en cours…');
+  try {
+    await pushToServer();
+    const r = await fetch('/api/data', { signal: AbortSignal.timeout(8000) });
+    const d = await r.json();
+    const totalItems = (d.courses && d.courses.items ? d.courses.items.length : 0);
+    const totalEvs = Object.values(d.events || {}).flat().length;
+    toast(`✅ Sync OK — ${totalEvs} events · ${totalItems} articles`);
+  } catch(e) {
+    toast('⚠️ Sync échouée — vérifie ta connexion');
+  }
+}
+
 function shareShoppingList() {
   const unchecked = (S.courses.items || []).filter(i => !i.checked);
   if (!unchecked.length) { toast('Aucun article à partager'); return; }

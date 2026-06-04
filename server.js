@@ -203,8 +203,15 @@ app.post('/api/data', (req, res) => {
     if (b.events  !== undefined) d.events  = b.events;
     if (b.todos   !== undefined) d.todos   = b.todos;
     if (b.cats    !== undefined) d.cats    = b.cats;
-    if (b.courses  !== undefined) d.courses  = b.courses;
-    if (b.ptodos   !== undefined) d.ptodos   = b.ptodos;
+    // Ne jamais écraser des données existantes avec une liste vide
+    if (b.courses !== undefined) {
+      const incomingItems = (b.courses.items || []).length;
+      const existingItems = (d.courses && d.courses.items || []).length;
+      if (incomingItems > 0 || existingItems === 0) d.courses = b.courses;
+    }
+    if (b.ptodos !== undefined) {
+      if (b.ptodos.length > 0 || !d.ptodos || d.ptodos.length === 0) d.ptodos = b.ptodos;
+    }
     if (b.settings !== undefined) d.settings = b.settings;
     if (b.journal !== undefined && b.journal !== null) {
       for (const [k, v] of Object.entries(b.journal))
