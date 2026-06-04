@@ -2475,7 +2475,7 @@ async function toggleNotifications() {
       updateNotifBtn();
       toast('🔔 Notifications activées !');
       // Subscribe to Web Push in background (non-blocking)
-      navigator.serviceWorker?.ready.then(reg => subscribeToPush(reg)).catch(()=>{});
+      (_swReg ? subscribeToPush(_swReg) : navigator.serviceWorker?.ready.then(reg => subscribeToPush(reg))).catch(()=>{});
     } else {
       toast('❌ Permission refusée');
     }
@@ -2513,15 +2513,12 @@ async function toggleNotifications() {
     updateNotifBtn();
     toast('🔔 Activation en cours…');
     scheduleDailyReminder();
-    // Subscribe Web Push — wait for result and show status
+    // Use stored registration or wait for ready
     try {
-      const reg = await Promise.race([
-        navigator.serviceWorker.ready,
-        new Promise((_,r) => setTimeout(() => r(new Error('SW timeout')), 8000))
-      ]);
+      const reg = _swReg || await navigator.serviceWorker.ready;
       await subscribeToPush(reg);
     } catch(e) {
-      toast('⚠️ Web Push non disponible: ' + e.message.slice(0,40));
+      toast('⚠️ ' + e.message.slice(0, 60));
     }
   }
 }
@@ -2585,7 +2582,7 @@ async function requestNotifPermission() {
     updateNotifBtn();
     toast('✅ Notifications actives');
     // Re-subscribe Web Push in background
-    navigator.serviceWorker?.ready.then(reg => subscribeToPush(reg)).catch(()=>{});
+    (_swReg ? subscribeToPush(_swReg) : navigator.serviceWorker?.ready.then(reg => subscribeToPush(reg))).catch(()=>{});
     return;
   }
   // Must be installed on home screen + opened from there for iOS
@@ -2597,7 +2594,7 @@ async function requestNotifPermission() {
     updateNotifBtn();
     toast('🔔 Notifications activées !');
     scheduleDailyReminder();
-    navigator.serviceWorker?.ready.then(reg => subscribeToPush(reg)).catch(()=>{});
+    (_swReg ? subscribeToPush(_swReg) : navigator.serviceWorker?.ready.then(reg => subscribeToPush(reg))).catch(()=>{});
   } else if (perm === 'denied') {
     toast('❌ Bloquées — autorise dans Réglages iPhone');
   }
@@ -3709,10 +3706,25 @@ async function syncFromAppleCalendar() {
 }
 
 // ═══ BOOT ═══
+let _swReg = null; // Global SW registration
+
 async function boot() {
   await loadAll();
   initDark();
   render();
+  // Register Service Worker for Web Push notifications
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => {
+        _swReg = reg;
+        console.log('✅ SW registered, scope:', reg.scope);
+        // Auto-subscribe if notifications already granted and enabled
+        if (Notification.permission === 'granted' && S.settings.notifEnabled !== false) {
+          subscribeToPush(reg).catch(e => console.warn('Auto-subscribe failed:', e.message));
+        }
+      })
+      .catch(e => console.warn('SW registration failed:', e.message));
+  }
   // Sync bidirectionnel au démarrage :
   // 1. Pull depuis serveur (récupère ce que les autres appareils ont poussé)
   // 2. Push local vers serveur (envoie ce que CE device a en IDB mais pas encore sur serveur)
