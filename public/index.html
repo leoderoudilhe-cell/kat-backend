@@ -1226,7 +1226,7 @@ function renderEventBlock(ev, dk, originalKey) {
     else if (diff === 0) countdown = `<span class="countdown-badge">Maintenant !</span>`;
   }
   const recBadge = ev.recurrence && ev.recurrence !== 'none' ? `<span class="event-badge">🔁</span>` : '';
-  const locBadge = ev.location ? `<span class="event-badge">📍 <span>${escHtml(ev.location)}</span></span>` : '';
+  const locBadge = ev.location ? `<button class="event-badge event-loc-btn" data-loc="${escHtml(ev.location)}" style="background:none;border:none;cursor:pointer;color:var(--kat);font-size:12px;padding:0;font-family:inherit;display:inline-flex;align-items:center;gap:3px;text-decoration:underline;text-underline-offset:2px;" title="Ouvrir dans Plans">📍 <span>${escHtml(ev.location)}</span></button>` : '';
 
   return `<div class="event-block${done?' done':''}" data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(originalKey)}" data-ev-dk="${escHtml(dk)}" data-ev-time="${escHtml(ev.time||'')}">
     <div class="event-cat-bar" style="background:${escHtml(ev.color || cat.color)}"></div>
@@ -1349,8 +1349,16 @@ function attachEventHandlers(container) {
     });
   });
 
-  // Map button
+  // Map button (right side icon)
   container.querySelectorAll('.ev-map-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      openInMaps(btn.dataset.loc);
+    });
+  });
+
+  // Address text badge (inline clickable)
+  container.querySelectorAll('.event-loc-btn').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
       openInMaps(btn.dataset.loc);
