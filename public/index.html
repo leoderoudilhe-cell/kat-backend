@@ -370,6 +370,10 @@ input, textarea { font-family: inherit; }
   100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
 }
 
+/* ═══ TRANSITIONS VUE ═══ */
+#content { transition: opacity 0.2s ease; }
+#content.fading { opacity: 0; }
+
 /* ═══ SCROLLBAR ═══ */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-thumb { background: var(--text3); border-radius: 4px; }
@@ -546,6 +550,10 @@ input, textarea { font-family: inherit; }
       </div>
     </div>
     <div class="form-group">
+      <label class="form-label">Couleur de l'événement</label>
+      <div id="ev-color-palette"></div>
+    </div>
+    <div class="form-group">
       <label class="form-label" for="ev-recurrence">Récurrence</label>
       <select class="form-input" id="ev-recurrence">
         <option value="none">Aucune</option>
@@ -613,8 +621,12 @@ input, textarea { font-family: inherit; }
     <div class="section-title">Calendrier</div>
     <div style="background:var(--card);border-radius:var(--radius-sm);overflow:hidden">
       <div class="settings-row">
-        <span class="settings-row-label">Exporter .ics</span>
-        <button class="btn-ghost" onclick="exportIcs()">Exporter</button>
+        <span class="settings-row-label">Exporter .ics (télécharger)</span>
+        <button class="btn-ghost" onclick="exportIcsDownload()">Exporter</button>
+      </div>
+      <div class="settings-row">
+        <span class="settings-row-label">Exporter journal PDF</span>
+        <button class="btn-ghost" onclick="exportJournalPdf()">Exporter</button>
       </div>
       <div class="settings-row">
         <span class="settings-row-label">Importer .ics</span>
@@ -758,7 +770,10 @@ function setSyncDot(state) {
   dot.id = 'sync-dot';
   if (state === 'syncing') dot.classList.add('syncing');
   else if (state === 'ok')  dot.classList.add('ok');
-  else if (state === 'err') dot.classList.add('err');
+  else if (state === 'err') {
+    dot.classList.add('err');
+    toast('⚠️ Sync en attente…', 3000);
+  }
 }
 async function syncFromServer() {
   setSyncDot('syncing');
@@ -766,9 +781,9 @@ async function syncFromServer() {
     const resp = await fetch('/api/data', { signal: AbortSignal.timeout(5000) });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
-    // Remote wins for events, todos, cats
-    if (data.events) S.events = data.events;
-    if (data.todos)  S.todos  = data.todos;
+    // Remote wins for events, todos, cats — only if non-empty (évite d'écraser si serveur redémarre vide)
+    if (data.events && Object.keys(data.events).length > 0) S.events = data.events;
+    if (data.todos  && Object.keys(data.todos).length  > 0) S.todos  = data.todos;
     if (data.cats && data.cats.length) S.cats = data.cats;
     // Journal: merge (remote text wins, local photos preserved)
     if (data.journal) {
@@ -872,7 +887,7 @@ async function toggleDone(evId, originalKey, dk) {
   if (!ev) return;
   if (!ev.doneInstances) ev.doneInstances = {};
   ev.doneInstances[dk] = !ev.doneInstances[dk];
-  if (ev.doneInstances[dk]) launchConfetti();
+  if (ev.doneInstances[dk]) { launchConfetti(); haptic([50,30,50]); }
   await saveData();
   render();
 }
@@ -880,6 +895,29 @@ async function toggleDone(evId, originalKey, dk) {
 // ═══ TODO HELPERS ═══
 function getTodos(k) { return (S.todos[k] || []).slice(); }
 function ensureTodos(k) { if (!S.todos[k]) S.todos[k] = []; }
+
+// ═══ INLINE EDIT TODO ═══
+function openInlineEditTodo(btn, todo, dk) {
+  const item = btn.closest('.todo-item');
+  const span = item.querySelector('.todo-text');
+  if (!span) return;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'form-input';
+  input.value = todo.text;
+  input.style.flex = '1';
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+  const save = async () => {
+    const val = input.value.trim();
+    if (val) todo.text = val;
+    await saveData();
+    render();
+  };
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); if (e.key === 'Escape') render(); });
+}
 
 // ═══ UNDO ═══
 function pushUndo(type, data) {
@@ -917,6 +955,10 @@ document.getElementById('undo-btn').onclick = async () => {
 function render() {
   updateNavUI();
   const content = document.getElementById('content');
+  content.classList.add('fading');
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => { content.classList.remove('fading'); });
+  });
   if (S.tab === 'calendar') {
     document.getElementById('view-tabs').style.display = '';
     document.getElementById('date-nav').style.display = '';
@@ -932,7 +974,7 @@ function render() {
   } else if (S.tab === 'stats') {
     document.getElementById('view-tabs').style.display = 'none';
     document.getElementById('date-nav').style.display = 'none';
-    renderStats(content);
+    renderStatsWithNav(content);
   }
   updateDateLabel();
   updateFab();
@@ -972,16 +1014,55 @@ function renderDay(container) {
 
   let html = '<div style="padding:12px;display:flex;flex-direction:column;gap:12px">';
 
-  // Events section
-  html += `<div class="card">
-    <div class="section">
-      <div class="section-title">Événements (${evList.length})</div>`;
-  if (!evList.length) {
-    html += '<div class="empty-state"><div class="emoji">🐱</div><p>Aucun événement</p></div>';
-  } else {
-    for (const {ev, dateKey: dk, originalKey} of evList) {
+  // Météo mini-widget si c'est aujourd'hui
+  if (isToday(S.date)) {
+    html += `<div id="weather-widget" class="card" style="display:none"><div class="section" style="display:flex;align-items:center;gap:12px;padding:10px 16px">
+      <div id="weather-icon" style="font-size:28px">⛅</div>
+      <div>
+        <div id="weather-temp" style="font-weight:700;font-size:16px">…°C à Cannes</div>
+        <div id="weather-tip" style="font-size:12px;color:var(--text2)"></div>
+      </div>
+    </div></div>`;
+    fetchWeatherWidget();
+  }
+
+  // Grille horaire scrollable (06h-23h)
+  html += `<div class="card"><div class="section">
+    <div class="section-title">Événements (${evList.length}) <span style="font-size:11px;color:var(--text3)">Tapez un créneau pour ajouter</span></div>
+    <div id="hour-grid" style="position:relative;height:${17*64}px;overflow-y:auto">`;
+  // Lignes horaires
+  for (let h = 6; h <= 22; h++) {
+    const top = (h - 6) * 64;
+    html += `<div class="hour-slot" data-hour="${h}" style="position:absolute;top:${top}px;left:0;right:0;height:64px;border-top:1px solid var(--border);display:flex;align-items:flex-start;padding:2px 4px;cursor:pointer">
+      <span style="font-size:11px;color:var(--text3);width:36px;flex-shrink:0">${String(h).padStart(2,'0')}:00</span>
+    </div>`;
+  }
+  // Event blocks positionnés
+  for (const {ev, dateKey: dk, originalKey} of evList) {
+    if (ev.time) {
+      const [h, m] = ev.time.split(':').map(Number);
+      if (h >= 6 && h <= 22) {
+        const top = (h - 6) * 64 + (m / 60) * 64;
+        const dur = (ev.duration || 60) / 60 * 64;
+        const cat = getCat(ev.catId);
+        const color = ev.color || cat.color;
+        html += `<div class="ev-positioned" data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(originalKey)}" data-ev-dk="${escHtml(dk)}"
+          style="position:absolute;top:${top}px;left:44px;right:4px;height:${Math.max(dur,24)}px;background:${escHtml(color)};border-radius:6px;padding:3px 6px;cursor:pointer;overflow:hidden;z-index:2">
+          <div style="font-size:12px;font-weight:700;color:white">${escHtml(ev.title)}</div>
+          ${ev.time ? `<div style="font-size:10px;color:rgba(255,255,255,0.8)">${escHtml(ev.time)}</div>` : ''}
+        </div>`;
+      }
+    }
+  }
+  html += '</div>';
+  // Liste des events sans heure
+  const noTimeEvs = evList.filter(({ev}) => !ev.time);
+  if (noTimeEvs.length) {
+    html += '<div style="margin-top:8px">';
+    for (const {ev, dateKey: dk, originalKey} of noTimeEvs) {
       html += renderEventBlock(ev, dk, originalKey);
     }
+    html += '</div>';
   }
   html += '</div></div>';
 
@@ -1025,8 +1106,8 @@ function renderEventBlock(ev, dk, originalKey) {
   const recBadge = ev.recurrence && ev.recurrence !== 'none' ? `<span class="event-badge">🔁</span>` : '';
   const locBadge = ev.location ? `<span class="event-badge">📍 <span>${escHtml(ev.location)}</span></span>` : '';
 
-  return `<div class="event-block${done?' done':''}" data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(originalKey)}" data-ev-dk="${escHtml(dk)}">
-    <div class="event-cat-bar" style="background:${escHtml(cat.color)}"></div>
+  return `<div class="event-block${done?' done':''}" data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(originalKey)}" data-ev-dk="${escHtml(dk)}" data-ev-time="${escHtml(ev.time||'')}">
+    <div class="event-cat-bar" style="background:${escHtml(ev.color || cat.color)}"></div>
     <div class="event-info">
       <div class="event-title">${escHtml(ev.title)} ${countdown}</div>
       <div class="event-meta">
@@ -1046,12 +1127,16 @@ function renderEventBlock(ev, dk, originalKey) {
 }
 
 function renderTodoItem(todo, dk) {
-  return `<div class="todo-item">
+  const idx = (S.todos[dk]||[]).findIndex(t=>t.id===todo.id);
+  const total = (S.todos[dk]||[]).length;
+  return `<div class="todo-item" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}">
     <div class="todo-check${todo.done?' done':''}" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}"></div>
     <span class="todo-text${todo.done?' done':''}"></span>
+    <button class="todo-edit-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:14px;color:var(--text2);width:30px;height:30px;display:flex;align-items:center;justify-content:center" title="Modifier">✏️</button>
+    <button class="todo-up-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:14px;color:var(--text3);width:26px;height:26px;display:flex;align-items:center;justify-content:center" ${idx===0?'disabled style="opacity:0.3"':''} title="Monter">↑</button>
+    <button class="todo-down-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:14px;color:var(--text3);width:26px;height:26px;display:flex;align-items:center;justify-content:center" ${idx===total-1?'disabled style="opacity:0.3"':''} title="Descendre">↓</button>
     <button class="todo-del-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:16px;color:var(--text3)">🗑</button>
   </div>`;
-  // textContent set via JS after insert — handled in attachEventHandlers
 }
 
 function renderProgressRing(pct) {
@@ -1077,6 +1162,28 @@ function attachEventHandlers(container) {
       const span = item.querySelector('.todo-text');
       if (span) span.textContent = todo.text;
     }
+  });
+
+  // Grille horaire — tap sur créneau → ouvre modal avec heure pré-remplie
+  container.querySelectorAll('.hour-slot').forEach(slot => {
+    slot.addEventListener('click', e => {
+      if (e.target.closest('.ev-positioned')) return;
+      const h = parseInt(slot.dataset.hour);
+      const rect = slot.getBoundingClientRect();
+      const relY = e.clientY - rect.top;
+      const mins = Math.floor(relY / 64 * 60 / 15) * 15;
+      const timeStr = `${String(h).padStart(2,'0')}:${String(mins).padStart(2,'0')}`;
+      openEventModal(S.date);
+      setTimeout(() => { document.getElementById('ev-time').value = timeStr; }, 50);
+    });
+  });
+
+  // Event positionné → edit
+  container.querySelectorAll('.ev-positioned').forEach(el => {
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      openEventModal(el.dataset.evDate, el.dataset.evId);
+    });
   });
 
   // Event block tap → edit
@@ -1110,7 +1217,43 @@ function attachEventHandlers(container) {
       const id = el.dataset.todoId;
       ensureTodos(dk);
       const todo = S.todos[dk].find(t => t.id === id);
-      if (todo) { todo.done = !todo.done; await saveData(); render(); }
+      if (todo) { todo.done = !todo.done; haptic(30); await saveData(); render(); }
+    });
+  });
+
+  // Todo edit
+  container.querySelectorAll('.todo-edit-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const dk = btn.dataset.todoDate;
+      const id = btn.dataset.todoId;
+      ensureTodos(dk);
+      const todo = S.todos[dk].find(t => t.id === id);
+      if (!todo) return;
+      openInlineEditTodo(btn, todo, dk);
+    });
+  });
+
+  // Todo reorder up
+  container.querySelectorAll('.todo-up-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const dk = btn.dataset.todoDate;
+      const id = btn.dataset.todoId;
+      ensureTodos(dk);
+      const arr = S.todos[dk];
+      const idx = arr.findIndex(t => t.id === id);
+      if (idx > 0) { [arr[idx-1], arr[idx]] = [arr[idx], arr[idx-1]]; await saveData(); render(); }
+    });
+  });
+
+  // Todo reorder down
+  container.querySelectorAll('.todo-down-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const dk = btn.dataset.todoDate;
+      const id = btn.dataset.todoId;
+      ensureTodos(dk);
+      const arr = S.todos[dk];
+      const idx = arr.findIndex(t => t.id === id);
+      if (idx < arr.length - 1) { [arr[idx], arr[idx+1]] = [arr[idx+1], arr[idx]]; await saveData(); render(); }
     });
   });
 
@@ -1155,7 +1298,7 @@ function renderWeek(container) {
       const cat = getCat(ev.catId);
       const done = isEventDone(ev, evDk);
       html += `<div class="week-event-pill${done?' done':''}" style="background:${escHtml(cat.color)};opacity:${done?0.5:1}"
-        data-goto="${escHtml(dk)}">${escHtml(ev.title)}</div>`;
+        data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(originalKey||dk)}" data-goto="${escHtml(dk)}">${escHtml(ev.title)}</div>`;
     }
     if (evs.length > 4) html += `<div style="font-size:10px;color:var(--text2)">+${evs.length-4}</div>`;
     html += '</div>';
@@ -1164,9 +1307,15 @@ function renderWeek(container) {
   container.innerHTML = html;
   container.querySelectorAll('[data-goto]').forEach(el => {
     el.addEventListener('click', () => {
-      S.date = el.dataset.goto;
-      S.view = 'day';
-      render();
+      if (el.dataset.evId) {
+        // Tap sur un event pill → ouvre modal directement
+        S.date = el.dataset.goto;
+        openEventModal(el.dataset.evDate, el.dataset.evId);
+      } else {
+        S.date = el.dataset.goto;
+        S.view = 'day';
+        render();
+      }
     });
   });
 }
@@ -1273,23 +1422,23 @@ function renderJournal(container) {
   html += '</div></div></div></div>';
   container.innerHTML = html;
 
-  // Mood buttons
+  // Variable locale pour mood sélectionné (pas encore sauvegardé)
+  let _selectedMood = entry.mood || null;
+
+  // Mood buttons — sélection visuelle uniquement, sauvegarde via bouton Enregistrer
   container.querySelectorAll('.mood-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const mood = btn.dataset.mood;
-      if (!S.journal[S.date]) S.journal[S.date] = {};
-      S.journal[S.date].mood = mood;
-      S.journal[S.date].date = S.date;
-      await saveData();
-      render();
+    btn.addEventListener('click', () => {
+      _selectedMood = btn.dataset.mood;
+      container.querySelectorAll('.mood-btn').forEach(b => b.classList.toggle('active', b.dataset.mood === _selectedMood));
     });
   });
 
-  // Journal save
+  // Journal save — sauvegarde mood + texte + photos ensemble
   const saveBtn = document.getElementById('journal-save-btn');
   if (saveBtn) saveBtn.addEventListener('click', async () => {
     const text = document.getElementById('journal-text').value;
     if (!S.journal[S.date]) S.journal[S.date] = {};
+    if (_selectedMood) S.journal[S.date].mood = _selectedMood;
     S.journal[S.date].text = text;
     S.journal[S.date].date = S.date;
     // Mark today filled for reminder
@@ -1299,6 +1448,7 @@ function renderJournal(container) {
     }
     await saveData();
     toast('Journal enregistré 📔');
+    render();
   });
 
   // Photos
@@ -1317,9 +1467,13 @@ function renderJournal(container) {
         added++;
       }
       if (!S.journal[S.date]) S.journal[S.date] = {};
-      S.journal[S.date].photos = existing;
-      // Store photos in blobs store
-      await idbSet('blobs', 'photos_' + S.date, existing);
+      S.journal[S.date].photos = existing; // stocké uniquement dans S.journal, pas en double dans blobs
+      S.journal[S.date].date = S.date;
+      // Marquer journal rempli si photo ajoutée aujourd'hui
+      if (isToday(S.date)) {
+        localStorage.setItem('kat_journal_filled_' + S.date, '1');
+        cancelDailyReminder();
+      }
       await saveData();
       render();
     });
@@ -1498,7 +1652,7 @@ function openEventModal(dateStr, evId) {
   catList.innerHTML = '';
   for (const cat of cats) {
     const div = document.createElement('div');
-    div.className = 'cat-option' + (ev && ev.catId === cat.id ? ' selected' : (!ev && cat === cats[0] ? ' selected' : ''));
+    div.className = 'cat-option' + (ev && ev.catId === cat.id ? ' selected' : (!ev && cat.id === cats[0].id ? ' selected' : ''));
     div.dataset.catId = cat.id;
     const dot = document.createElement('div');
     dot.className = 'cat-dot-big';
@@ -1520,6 +1674,18 @@ function openEventModal(dateStr, evId) {
     chip.classList.toggle('on', reminders.includes(parseInt(chip.dataset.min)));
     chip.onclick = () => chip.classList.toggle('on');
   });
+
+  // Palette couleur override
+  const palette = document.getElementById('ev-color-palette');
+  palette.innerHTML = renderColorPalette(ev ? ev.color : null);
+  palette.querySelectorAll('.color-swatch').forEach(sw => {
+    sw.addEventListener('click', () => {
+      palette.querySelectorAll('.color-swatch').forEach(s => s.style.border = '3px solid transparent');
+      sw.style.border = '3px solid var(--text)';
+      palette.dataset.selected = sw.dataset.color;
+    });
+  });
+  palette.dataset.selected = (ev && ev.color) || '';
 
   document.getElementById('event-modal').classList.add('open');
 }
@@ -1549,6 +1715,7 @@ document.getElementById('ev-save-btn').addEventListener('click', async () => {
     notes: document.getElementById('ev-notes').value.trim(),
     recurrence: document.getElementById('ev-recurrence').value,
     reminders,
+    color: document.getElementById('ev-color-palette').dataset.selected || null,
     doneInstances: {},
   };
 
@@ -1654,6 +1821,7 @@ const content = document.getElementById('content');
 content.addEventListener('touchstart', e => { _swipeX = e.touches[0].clientX; }, { passive: true });
 content.addEventListener('touchend', e => {
   if (_swipeX === null) return;
+  if (S.tab !== 'calendar') { _swipeX = null; return; }
   const dx = e.changedTouches[0].clientX - _swipeX;
   if (Math.abs(dx) > 60) shiftDate(dx < 0 ? 1 : -1);
   _swipeX = null;
@@ -1667,7 +1835,7 @@ function openSettings() {
   const dark = document.documentElement.dataset.dark === '1';
   document.getElementById('dark-toggle').classList.toggle('on', dark);
   // Webcal URL
-  const webcalUrl = 'webcal://' + location.host + '/ical';
+  const webcalUrl = 'webcal://kat-app.onrender.com/ical';
   document.getElementById('webcal-label').textContent = webcalUrl;
 }
 function closeSettings() { document.getElementById('settings-panel').classList.remove('open'); }
@@ -1787,7 +1955,7 @@ function parseIcs(text) {
 }
 
 function copyWebcal() {
-  const url = 'webcal://' + location.host + '/ical';
+  const url = 'webcal://kat-app.onrender.com/ical';
   navigator.clipboard.writeText(url).then(() => toast('📋 Lien webcal copié'));
 }
 
@@ -2097,6 +2265,277 @@ function cancelDailyReminder() {
   _reminderInterval = null;
 }
 
+// ═══ MÉTÉO WIDGET ═══
+async function fetchWeatherWidget() {
+  try {
+    const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=43.5513&longitude=7.0128&current_weather=true&timezone=Europe/Paris', { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return;
+    const d = await r.json();
+    const cw = d.current_weather;
+    const wcode = cw.weathercode;
+    const wEmoji = wcode <= 1 ? '☀️' : wcode <= 3 ? '⛅' : wcode <= 67 ? '🌧️' : wcode <= 77 ? '❄️' : '🌩️';
+    const temp = Math.round(cw.temperature);
+    let tip = '';
+    if (temp > 25) tip = '☀️ Légère, lunettes de soleil';
+    else if (wcode > 40 && wcode <= 67) tip = '🌂 Prends un imperméable';
+    else if (temp < 15) tip = '🧥 Veste chaude conseillée';
+    else tip = '👕 Temps agréable';
+    const w = document.getElementById('weather-widget');
+    const icon = document.getElementById('weather-icon');
+    const tempEl = document.getElementById('weather-temp');
+    const tipEl = document.getElementById('weather-tip');
+    if (w && icon && tempEl && tipEl) {
+      icon.textContent = wEmoji;
+      tempEl.textContent = `${temp}°C à Cannes`;
+      tipEl.textContent = tip;
+      w.style.display = '';
+    }
+  } catch(e) {}
+}
+
+// ═══ VUE À VENIR (UPCOMING) ═══
+function renderUpcoming(container) {
+  const now = new Date();
+  const upcoming = [];
+  for (const [dk, evList] of Object.entries(S.events)) {
+    const d = parseDate(dk);
+    if (d < new Date(now.getFullYear(), now.getMonth(), now.getDate())) continue;
+    for (const ev of evList) {
+      upcoming.push({ ev, dk });
+    }
+  }
+  upcoming.sort((a, b) => {
+    const da = a.dk + 'T' + (a.ev.time || '00:00');
+    const db = b.dk + 'T' + (b.ev.time || '00:00');
+    return da.localeCompare(db);
+  });
+  const slice = upcoming.slice(0, 10);
+  if (!slice.length) return '';
+  let html = '<div class="card" style="margin-top:12px"><div class="section"><div class="section-title">Prochains événements</div>';
+  for (const { ev, dk } of slice) {
+    const cat = getCat(ev.catId);
+    const d = parseDate(dk);
+    const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+    html += `<div class="event-block" data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(dk)}" data-ev-dk="${escHtml(dk)}">
+      <div class="event-cat-bar" style="background:${escHtml(cat.color)}"></div>
+      <div class="event-info">
+        <div class="event-title"></div>
+        <div class="event-meta"><span>${escHtml(dateStr)}</span>${ev.time ? `<span>${escHtml(ev.time)}</span>` : ''}</div>
+      </div>
+    </div>`;
+  }
+  html += '</div></div>';
+  return { html, items: slice };
+}
+
+// ═══ COUNTDOWN LIVE ═══
+let _countdownTimer = null;
+function startCountdownTimer() {
+  if (_countdownTimer) clearInterval(_countdownTimer);
+  _countdownTimer = setInterval(() => {
+    document.querySelectorAll('.countdown-badge').forEach(badge => {
+      const block = badge.closest('.event-block');
+      if (!block) return;
+      const time = block.dataset.evTime;
+      if (!time) return;
+      const [h, m] = time.split(':').map(Number);
+      const now = new Date();
+      const diff = h * 60 + m - now.getHours() * 60 - now.getMinutes();
+      if (diff > 0 && diff < 60) badge.textContent = diff + ' min';
+      else if (diff === 0) badge.textContent = 'Maintenant !';
+      else badge.remove();
+    });
+  }, 60000);
+}
+
+// ═══ EXPORT ICS MANUEL ═══
+function exportIcsDownload() {
+  const L = [
+    'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//KAT//FR',
+    'CALSCALE:GREGORIAN','METHOD:PUBLISH',
+    'X-WR-CALNAME:KAT 🐱','X-WR-CALDESC:Agenda KAT',
+  ];
+  for (const [dk, evs] of Object.entries(S.events)) {
+    if (!Array.isArray(evs)) continue;
+    for (const ev of evs) {
+      if (!ev.title) continue;
+      const dur = parseInt(ev.duration) || 60;
+      const [h, mi] = (ev.time || '09:00').split(':').map(Number);
+      const tm = h * 60 + mi + dur;
+      const endT = `${String(Math.floor(tm/60)).padStart(2,'0')}:${String(tm%60).padStart(2,'0')}`;
+      const toD = (d, t) => {
+        const [y,mo,dd] = d.split('-').map(Number);
+        const [hh,mm] = (t||'00:00').split(':').map(Number);
+        return `${y}${String(mo).padStart(2,'0')}${String(dd).padStart(2,'0')}T${String(hh).padStart(2,'0')}${String(mm).padStart(2,'0')}00`;
+      };
+      const esc = s => (s||'').replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\\;').replace(/\n/g,'\\n');
+      L.push('BEGIN:VEVENT',
+        `UID:${ev.id||dk+'-x'}@kat`,
+        `DTSTART:${toD(dk,ev.time)}`, `DTEND:${toD(dk,endT)}`,
+        `SUMMARY:${esc(ev.title)}`,
+        `STATUS:CONFIRMED`);
+      if (ev.location) L.push(`LOCATION:${esc(ev.location)}`);
+      L.push('END:VEVENT');
+    }
+  }
+  L.push('END:VCALENDAR');
+  const blob = new Blob([L.join('\r\n')], { type: 'text/calendar' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'kat-agenda.ics';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast('📤 Export ICS téléchargé');
+}
+
+// ═══ STATS PAR SEMAINE (navigation) ═══
+let _statsWeekOffset = 0;
+function renderStatsWithNav(container) {
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - ((now.getDay()+6)%7) + _statsWeekOffset * 7);
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    days.push(dateKey(d));
+  }
+
+  const evCounts = days.map(dk => eventsForDay(dk).length);
+  const maxEv = Math.max(...evCounts, 1);
+  const todoData = days.map(dk => {
+    const todos = getTodos(dk);
+    return { total: todos.length, done: todos.filter(t=>t.done).length };
+  });
+  const moodEmojis = days.map(dk => (S.journal[dk]||{}).mood || null);
+  const dayNames = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+
+  // Journal streak
+  let streak = 0;
+  const todayKey = dateKey(new Date());
+  let checkD = new Date();
+  while (true) {
+    const k = dateKey(checkD);
+    if (S.journal[k] && (S.journal[k].text || S.journal[k].mood)) { streak++; checkD.setDate(checkD.getDate()-1); }
+    else break;
+  }
+
+  const weekLabel = parseDate(days[0]).toLocaleDateString('fr-FR', { day:'numeric', month:'short' })
+    + ' – ' + parseDate(days[6]).toLocaleDateString('fr-FR', { day:'numeric', month:'short' });
+
+  let html = '<div style="padding:12px;display:flex;flex-direction:column;gap:12px">';
+
+  // Nav semaine
+  html += `<div style="display:flex;align-items:center;justify-content:space-between;background:var(--card);border-radius:var(--radius-sm);padding:10px 16px">
+    <button class="nav-arrow" id="stats-prev-week">‹</button>
+    <span style="font-weight:700;font-size:14px">${escHtml(weekLabel)}</span>
+    <button class="nav-arrow" id="stats-next-week" ${_statsWeekOffset >= 0 ? 'disabled style="opacity:0.3"':''}>›</button>
+  </div>`;
+
+  // Streak
+  if (streak > 0) {
+    html += `<div class="card"><div class="section" style="text-align:center">
+      <div style="font-size:28px">🔥</div>
+      <div style="font-weight:800;font-size:18px">${streak} jour${streak>1?'s':''} de suite</div>
+      <div style="color:var(--text2);font-size:13px">Série journal consécutive</div>
+    </div></div>`;
+  }
+
+  // Events bar chart
+  html += '<div class="card"><div class="section"><div class="section-title">Événements</div>';
+  days.forEach((dk, i) => {
+    const pct = Math.round(evCounts[i]/maxEv*100);
+    html += `<div class="stats-bar-row">
+      <div class="stats-bar-label">${dayNames[i]}</div>
+      <div class="stats-bar-track"><div class="stats-bar-fill" style="width:${pct}%"></div></div>
+      <span style="font-size:12px;color:var(--text2);width:20px;text-align:right">${evCounts[i]}</span>
+    </div>`;
+  });
+  html += '</div></div>';
+
+  // Todos progress
+  html += '<div class="card"><div class="section"><div class="section-title">Tâches</div>';
+  days.forEach((dk, i) => {
+    const {total, done} = todoData[i];
+    const pct = total ? Math.round(done/total*100) : 0;
+    html += `<div class="stats-bar-row">
+      <div class="stats-bar-label">${dayNames[i]}</div>
+      <div class="stats-bar-track"><div class="stats-bar-fill" style="width:${pct}%;background:#34C759"></div></div>
+      <span style="font-size:12px;color:var(--text2);width:40px;text-align:right">${done}/${total}</span>
+    </div>`;
+  });
+  html += '</div></div>';
+
+  // Mood dots
+  html += '<div class="card"><div class="section"><div class="section-title">Humeurs</div>';
+  html += '<div style="display:flex;gap:8px;align-items:center">';
+  days.forEach((dk, i) => {
+    const mood = moodEmojis[i];
+    html += `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
+      <div style="font-size:22px">${mood || '·'}</div>
+      <div style="font-size:10px;color:var(--text2)">${dayNames[i]}</div>
+    </div>`;
+  });
+  html += '</div></div></div>';
+
+  const totalEvs = evCounts.reduce((a,b)=>a+b,0);
+  const totalDone = todoData.reduce((a,b)=>a+b.done,0);
+  const totalTodos = todoData.reduce((a,b)=>a+b.total,0);
+  const moodCount = moodEmojis.filter(Boolean).length;
+  html += `<div class="card"><div class="section">
+    <div class="section-title">Résumé</div>
+    <p style="font-size:15px;line-height:1.6;color:var(--text2)">
+      📅 ${totalEvs} événement${totalEvs!==1?'s':''}<br>
+      ✅ ${totalDone}/${totalTodos} tâches<br>
+      📔 ${moodCount} jour${moodCount!==1?'s':''} de journal
+    </p>
+  </div></div>`;
+  html += '</div>';
+  container.innerHTML = html;
+
+  document.getElementById('stats-prev-week')?.addEventListener('click', () => { _statsWeekOffset--; renderStatsWithNav(container); });
+  document.getElementById('stats-next-week')?.addEventListener('click', () => { if (_statsWeekOffset < 0) { _statsWeekOffset++; renderStatsWithNav(container); } });
+}
+
+// ═══ COULEUR OVERRIDE PAR EVENT ═══
+function renderColorPalette(currentColor) {
+  const colors = ['#007AFF','#34C759','#8B5CF6','#FF9500','#FF3B30','#5AC8FA','#EC4899','#F59E0B','#10B981','#6B7280'];
+  let html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">';
+  for (const c of colors) {
+    const sel = c === currentColor ? 'border:3px solid var(--text)' : 'border:3px solid transparent';
+    html += `<div class="color-swatch" data-color="${escHtml(c)}" style="width:32px;height:32px;border-radius:50%;background:${escHtml(c)};cursor:pointer;${sel}"></div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+// ═══ HAPTICS ═══
+function haptic(pattern) {
+  if (navigator.vibrate) navigator.vibrate(pattern || 30);
+}
+
+// ═══ EXPORT JOURNAL PDF ═══
+function exportJournalPdf() {
+  const entries = Object.entries(S.journal).sort((a,b) => a[0].localeCompare(b[0]));
+  if (!entries.length) { toast('Aucune entrée journal'); return; }
+  let body = '<style>body{font-family:-apple-system,sans-serif;max-width:600px;margin:auto;padding:32px;color:#1C1C1E}h1{color:#8B5CF6}h2{margin-top:24px;color:#1C1C1E}p{line-height:1.6;color:#3C3C3E}.mood{font-size:24px}</style>';
+  body += '<h1>Journal KAT 🐱</h1>';
+  for (const [dk, entry] of entries) {
+    const d = parseDate(dk);
+    const dateStr = d.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+    body += `<h2>${escHtml(dateStr)}</h2>`;
+    if (entry.mood) body += `<div class="mood">${escHtml(entry.mood)}</div>`;
+    if (entry.text) body += `<p>${escHtml(entry.text).replace(/\n/g,'<br>')}</p>`;
+  }
+  const win = window.open('', '_blank');
+  if (win) {
+    win.document.write(`<!DOCTYPE html><html><head><title>Journal KAT</title></head><body>${body}</body></html>`);
+    win.document.close();
+    win.focus();
+    win.print();
+  }
+}
+
 // ═══ DARK MODE INIT ═══
 function initDark() {
   const savedDark = S.settings.dark;
@@ -2129,6 +2568,7 @@ async function boot() {
   syncFromServer().then(() => render()).catch(() => {});
   scheduleDailyReminder();
   checkAutoBriefing();
+  startCountdownTimer();
 }
 
 boot();
