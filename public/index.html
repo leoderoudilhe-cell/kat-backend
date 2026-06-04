@@ -1223,20 +1223,22 @@ function renderDay(container) {
         const cat = getCat(ev.catId);
         const color = ev.color || cat.color;
         const evDone = isEventDone(ev, dk);
+        const blockH = Math.max(dur, 32);
         html += `<div class="ev-positioned" data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(originalKey)}" data-ev-dk="${escHtml(dk)}"
-          style="position:absolute;top:${top}px;left:44px;right:4px;height:${Math.max(dur,32)}px;background:${evDone?'#8E8E93':escHtml(color)};border-radius:6px;padding:4px 6px;cursor:pointer;overflow:hidden;z-index:2;display:flex;align-items:flex-start;gap:4px;opacity:${evDone?0.6:1}">
-          <div style="flex:1;min-width:0">
+          style="position:absolute;top:${top}px;left:44px;right:4px;height:${blockH}px;background:${evDone?'#8E8E93':escHtml(color)};border-radius:6px;padding:4px 6px;cursor:pointer;overflow:hidden;z-index:2;display:flex;align-items:flex-start;gap:4px;opacity:${evDone?0.6:1}">
+          <div style="flex:1;min-width:0;overflow:hidden">
             <div style="font-size:12px;font-weight:700;color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${evDone?'text-decoration:line-through':''}">${escHtml(ev.title)}</div>
-            ${ev.time && Math.max(dur,32)>28 ? `<div style="font-size:10px;color:rgba(255,255,255,0.8)">${escHtml(ev.time)}${ev.duration?' · '+ev.duration+'min':''}</div>` : ''}
-            ${ev.location && Math.max(dur,32)>44 ? `<button class="ev-map-btn" data-loc="${escHtml(ev.location)}" style="display:flex;align-items:center;gap:3px;background:rgba(255,255,255,0.2);border:none;border-radius:4px;padding:2px 6px;color:white;font-size:10px;cursor:pointer;margin-top:2px;font-family:inherit;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">📍 ${escHtml(ev.location.split(',')[0])}</button>` : ''}
+            ${ev.time ? `<div style="font-size:10px;color:rgba(255,255,255,0.8)">${escHtml(ev.time)}${ev.duration?' · '+ev.duration+'min':''}</div>` : ''}
+            ${ev.location ? `<button class="ev-map-btn" data-loc="${escHtml(ev.location)}"
+              style="display:inline-flex;align-items:center;gap:3px;background:rgba(255,255,255,0.25);border:none;border-radius:4px;padding:2px 7px;color:white;font-size:10px;font-weight:500;cursor:pointer;margin-top:3px;font-family:inherit;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;text-decoration:underline;min-height:22px"
+              title="Ouvrir dans Plans">📍 ${escHtml(ev.location.split(',')[0])}</button>` : ''}
           </div>
-          <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">
+          <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0;align-items:center">
             <button class="ev-done-btn" data-ev-id="${escHtml(ev.id)}" data-orig="${escHtml(originalKey)}" data-dk="${escHtml(dk)}"
-              style="width:22px;height:22px;border-radius:50%;border:2px solid ${evDone?'white':'rgba(255,255,255,0.7)'};background:${evDone?'rgba(255,255,255,0.3)':'none'};color:white;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"
-              title="${evDone?'Annuler':'Marquer fait'}">
+              style="width:24px;height:24px;border-radius:50%;border:2px solid ${evDone?'white':'rgba(255,255,255,0.8)'};background:${evDone?'rgba(255,255,255,0.35)':'none'};color:white;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"
+              title="Marquer fait / Supprimer">
               ${evDone?'✓':''}
             </button>
-            ${ev.location ? `<button class="ev-map-btn" data-loc="${escHtml(ev.location)}" style="width:22px;height:22px;border-radius:4px;background:rgba(255,255,255,0.2);border:none;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" title="Ouvrir dans Plans">📍</button>` : ''}
           </div>
         </div>`;
       }
