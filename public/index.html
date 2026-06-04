@@ -3042,11 +3042,41 @@ async function boot() {
   await loadAll();
   initDark();
   render();
-  // Sync from server (non-blocking)
   syncFromServer().then(() => render()).catch(() => {});
+  // Auto-sync Apple Calendar -> KAT au demarrage puis toutes les 5 min
+  autoSyncFromApple();
+  setInterval(autoSyncFromApple, 5 * 60 * 1000);
   scheduleDailyReminder();
   checkAutoBriefing();
   startCountdownTimer();
+}
+
+async function autoSyncFromApple() {
+  try {
+    const resp = await fetch('/api/sync-from-icloud', { signal: AbortSignal.timeout(15000) });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data.events || !data.events.length) return;
+    let added = 0;
+    for (const ev of data.events) {
+      if (!ev.date || !ev.title) continue;
+      const existing = (S.events[ev.date] || []).find(e => e.id === ev.id);
+      if (!existing) {
+        ensureEvents(ev.date);
+        S.events[ev.date].push({
+          id: ev.id, title: ev.title, time: ev.time || '09:00',
+          duration: ev.duration || 60, catId: 'work', done: false,
+          location: ev.location || '', notes: ev.notes || '', fromApple: true
+        });
+        added++;
+      }
+    }
+    if (added > 0) {
+      await saveData();
+      render();
+      toast();
+    }
+  } catch(e) { /* silencieux si hors-ligne */ }
 }
 
 boot();

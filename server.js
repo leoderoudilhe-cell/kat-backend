@@ -515,3 +515,57 @@ async function deleteFromiCloud(evId) {
     await caldavRequest('DELETE', url, null, {});
   } catch(e) {}
 }
+
+// ═══ AUTO-SYNC iCloud → KAT toutes les 5 minutes ═══
+async function autoSyncFromiCloud() {
+  if (!ICLOUD_CAL_URL || !ICLOUD_EMAIL || !ICLOUD_PASSWORD) return;
+  try {
+    const propfindBody = `<?xml version="1.0" encoding="UTF-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:getetag/></D:prop></D:propfind>`;
+    const listResp = await caldavRequest('PROPFIND', ICLOUD_CAL_URL, propfindBody,
+      { 'Depth': '1', 'Content-Type': 'application/xml' });
+    if (!listResp || listResp.status >= 400) return;
+
+    const hrefMatches = listResp.body.match(/<[^:]*:?href[^>]*>([^<]+\.ics[^<]*)<\/[^:]*:?href>/gi) || [];
+    const hrefs = hrefMatches.map(m => m.replace(/<[^>]+>/g, '').trim()).filter(h => h.endsWith('.ics'));
+
+    const data = loadData();
+    const allKatIds = new Set(Object.values(data.events).flat().map(e => e.id));
+    let changed = false;
+
+    for (const href of hrefs) {
+      try {
+        const parsedBase = new URL(ICLOUD_CAL_URL);
+        const fullUrl = href.startsWith('http') ? href : `${parsedBase.protocol}//${parsedBase.host}${href}`;
+        const evResp = await caldavRequest('GET', fullUrl, null, {});
+        if (!evResp || evResp.status !== 200) continue;
+        const ics = evResp.body;
+        const get = f => { const m = ics.match(new RegExp(f + '[^:]*:([^\\r\\n]+)')); return m ? m[1].trim() : ''; };
+        const uid = get('UID'), summary = get('SUMMARY'), dtstart = get('DTSTART');
+        if (!uid || !summary || !dtstart) continue;
+        if (uid.includes('@kat-app')) continue; // skip KAT-originated events
+        const evId = uid.replace(/@.*/,'').slice(0,40);
+        if (allKatIds.has(evId)) continue; // already in KAT
+
+        const dtc = dtstart.replace(/TZID=[^:]+:/,'').replace('Z','');
+        if (dtc.length < 8) continue;
+        const dk = `${dtc.slice(0,4)}-${dtc.slice(4,6)}-${dtc.slice(6,8)}`;
+        const time = dtc.length >= 13 ? `${dtc.slice(9,11)}:${dtc.slice(11,13)}` : '09:00';
+        if (!data.events[dk]) data.events[dk] = [];
+        data.events[dk].push({ id: evId, title: summary, time, duration: 60, catId: 'work', done: false, fromApple: true });
+        allKatIds.add(evId);
+        changed = true;
+      } catch(e2) {}
+    }
+
+    if (changed) {
+      saveData(data);
+      console.log('✅ Auto-sync: nouveaux events Apple Calendar importés dans KAT');
+    }
+  } catch(e) { console.warn('autoSyncFromiCloud error:', e.message); }
+}
+
+// Lancer au démarrage (après 10s) puis toutes les 5 minutes
+setTimeout(() => {
+  autoSyncFromiCloud();
+  setInterval(autoSyncFromiCloud, 5 * 60 * 1000);
+}, 10000);
