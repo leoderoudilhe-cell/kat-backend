@@ -404,6 +404,20 @@ app.get('/api/sync-from-icloud', async (req, res) => {
   }
 });
 
+// Delete a specific event from iCloud CalDAV
+app.post('/api/delete-event', async (req, res) => {
+  const { evId } = req.body || {};
+  if (!evId) return res.status(400).json({ error: 'evId required' });
+  try {
+    await deleteFromiCloud(evId);
+    console.log('🗑 Deleted from iCloud:', evId);
+    res.json({ ok: true });
+  } catch(e) {
+    console.warn('Delete from iCloud failed:', e.message);
+    res.json({ ok: false, error: e.message });
+  }
+});
+
 app.get('*', (_, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app.listen(PORT, () => {

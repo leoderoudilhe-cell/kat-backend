@@ -1000,15 +1000,59 @@ function eventsForDay(k) {
 
 function isEventDone(ev, dk) { return !!(ev.doneInstances && ev.doneInstances[dk]); }
 async function toggleDone(evId, originalKey, dk) {
-  const evs = S.events[originalKey];
-  if (!evs) return;
-  const ev = evs.find(e => e.id === evId);
+  // The circle button now confirms and deletes the event
+  confirmAndDeleteEvent(evId, originalKey, dk);
+}
+
+function confirmAndDeleteEvent(evId, originalKey, dk) {
+  const ev = (S.events[originalKey]||[]).find(e=>e.id===evId);
   if (!ev) return;
-  if (!ev.doneInstances) ev.doneInstances = {};
-  ev.doneInstances[dk] = !ev.doneInstances[dk];
-  if (ev.doneInstances[dk]) { launchConfetti(); haptic([50,30,50]); }
-  await saveData();
-  render();
+
+  // Remove any existing confirm sheet
+  document.getElementById('confirm-done-sheet')?.remove();
+
+  const sheet = document.createElement('div');
+  sheet.id = 'confirm-done-sheet';
+  sheet.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;display:flex;align-items:flex-end;animation:fadeIn .2s';
+  sheet.innerHTML = `
+    <div style="background:var(--card);border-radius:20px 20px 0 0;width:100%;padding:20px 20px calc(20px + var(--safe-bot,0px));animation:slideUp .3s cubic-bezier(.32,.72,0,1)">
+      <div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></div>
+      <div style="text-align:center;margin-bottom:20px">
+        <div style="font-size:36px;margin-bottom:8px">🎉</div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:6px">${escHtml(ev.title)}</div>
+        <div style="font-size:14px;color:var(--text2)">Supprimer cet événement de KAT<br>et de ton Apple Calendar ?</div>
+      </div>
+      <button id="confirm-done-yes" style="display:block;width:100%;background:var(--green);color:white;border:none;border-radius:14px;padding:15px;font-size:16px;font-weight:700;font-family:inherit;cursor:pointer;margin-bottom:10px">
+        ✅ Oui, c'est fait !
+      </button>
+      <button id="confirm-done-no" style="display:block;width:100%;background:var(--border);color:var(--text);border:none;border-radius:14px;padding:15px;font-size:16px;font-weight:600;font-family:inherit;cursor:pointer">
+        Annuler
+      </button>
+    </div>`;
+
+  document.body.appendChild(sheet);
+
+  document.getElementById('confirm-done-yes').addEventListener('click', async () => {
+    sheet.remove();
+    // Confetti + haptic
+    launchConfetti();
+    haptic([50,30,50]);
+    // Delete from KAT
+    const idx = (S.events[originalKey]||[]).findIndex(e=>e.id===evId);
+    if (idx !== -1) S.events[originalKey].splice(idx,1);
+    await saveData();
+    render();
+    // Delete from iCloud in background
+    fetch('/api/delete-event', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ evId })
+    }).catch(()=>{});
+    toast('🎉 Événement supprimé !');
+  });
+
+  document.getElementById('confirm-done-no').addEventListener('click', () => sheet.remove());
+  sheet.addEventListener('click', e => { if(e.target===sheet) sheet.remove(); });
 }
 
 // ═══ TODO HELPERS ═══
