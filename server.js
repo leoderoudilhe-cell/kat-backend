@@ -134,41 +134,82 @@ function nowStamp() {
   return `${n.getUTCFullYear()}${p(n.getUTCMonth()+1)}${p(n.getUTCDate())}T${p(n.getUTCHours())}${p(n.getUTCMinutes())}${p(n.getUTCSeconds())}Z`;
 }
 
+// RFC 5545 line folding: max 75 octets per line
+function fold(line) {
+  const bytes = Buffer.from(line, 'utf8');
+  if (bytes.length <= 75) return line;
+  const parts = [];
+  let pos = 0;
+  while (pos < bytes.length) {
+    const limit = pos === 0 ? 75 : 74; // first line 75, continuation 74 (space takes 1)
+    // Find a safe UTF-8 boundary
+    let end = Math.min(pos + limit, bytes.length);
+    while (end > pos && (bytes[end] & 0xC0) === 0x80) end--; // don't split multi-byte char
+    parts.push((pos > 0 ? ' ' : '') + bytes.slice(pos, end).toString('utf8'));
+    pos = end;
+  }
+  return parts.join('\r\n');
+}
+
 function buildICS(events) {
-  const L = [
+  const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//KAT App//FR',
+    'PRODID:-//KAT//KAT Agenda//FR',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'X-WR-CALNAME:KAT Agenda',
-    'X-WR-CALDESC:Agenda personnel KAT',
+    'X-WR-CALDESC:Agenda KAT',
     'X-WR-TIMEZONE:Europe/Paris',
     'REFRESH-INTERVAL;VALUE=DURATION:PT15M',
     'X-PUBLISHED-TTL:PT15M',
+    // VTIMEZONE required for TZID=Europe/Paris
+    'BEGIN:VTIMEZONE',
+    'TZID:Europe/Paris',
+    'X-LIC-LOCATION:Europe/Paris',
+    'BEGIN:DAYLIGHT',
+    'TZOFFSETFROM:+0100',
+    'TZOFFSETTO:+0200',
+    'TZNAME:CEST',
+    'DTSTART:19700329T020000',
+    'RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=3',
+    'END:DAYLIGHT',
+    'BEGIN:STANDARD',
+    'TZOFFSETFROM:+0200',
+    'TZOFFSETTO:+0100',
+    'TZNAME:CET',
+    'DTSTART:19701025T030000',
+    'RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=10',
+    'END:STANDARD',
+    'END:VTIMEZONE',
   ];
 
-  // Always include at least one VEVENT so Apple Calendar accepts the feed
+  const push = (line) => lines.push(fold(line));
+
   const allEvs = [];
   for (const [dk, evs] of Object.entries(events)) {
     if (!Array.isArray(evs)) continue;
     evs.forEach(ev => { if (ev.title) allEvs.push({dk, ev}); });
   }
 
-  // If no events yet, add a placeholder so Apple Calendar validates
+  // Placeholder event so Apple Calendar validates even when calendar is empty
   if (allEvs.length === 0) {
-    const today = new Date().toISOString().slice(0,10);
-    L.push(
-      'BEGIN:VEVENT',
-      `UID:kat-placeholder@kat-app`,
-      `DTSTAMP:${nowStamp()}`,
-      `DTSTART;VALUE=DATE:${today.replace(/-/g,'')}`,
-      `DTEND;VALUE=DATE:${today.replace(/-/g,'')}`,
-      'SUMMARY:KAT Agenda',
-      'DESCRIPTION:Abonnement KAT actif. Creez des evenements dans KAT pour les voir ici.',
-      'STATUS:CONFIRMED',
-      'END:VEVENT'
-    );
+    const d = new Date();
+    const p = x => String(x).padStart(2,'0');
+    const today  = `${d.getUTCFullYear()}${p(d.getUTCMonth()+1)}${p(d.getUTCDate())}`;
+    // DTEND must be day AFTER for all-day events
+    d.setUTCDate(d.getUTCDate() + 1);
+    const tomorrow = `${d.getUTCFullYear()}${p(d.getUTCMonth()+1)}${p(d.getUTCDate())}`;
+    push('BEGIN:VEVENT');
+    push('UID:kat-placeholder-2026@kat-app');
+    push(`DTSTAMP:${nowStamp()}`);
+    push(`DTSTART;VALUE=DATE:${today}`);
+    push(`DTEND;VALUE=DATE:${tomorrow}`);
+    push('SUMMARY:KAT Agenda');
+    push('DESCRIPTION:Abonnement actif. Creez des evenements dans KAT.');
+    push('STATUS:CONFIRMED');
+    push('TRANSP:TRANSPARENT');
+    push('END:VEVENT');
   }
 
   for (const {dk, ev} of allEvs) {
@@ -176,30 +217,31 @@ function buildICS(events) {
     const [h,mi] = (ev.time||'09:00').split(':').map(Number);
     const tm = h*60+mi+dur;
     const endT = `${String(Math.floor(tm/60)).padStart(2,'0')}:${String(tm%60).padStart(2,'0')}`;
-    // Use TZID for local Paris time
-    L.push(
-      'BEGIN:VEVENT',
-      `UID:${ev.id||dk+'-'+Math.random().toString(36).slice(2)}@kat-app`,
-      `DTSTAMP:${nowStamp()}`,
-      `DTSTART;TZID=Europe/Paris:${toD(dk,ev.time)}`,
-      `DTEND;TZID=Europe/Paris:${toD(dk,endT)}`,
-      `SUMMARY:${esc(ev.title)}`,
-      `STATUS:${ev.done?'COMPLETED':'CONFIRMED'}`
-    );
-    if (ev.location) L.push(`LOCATION:${esc(ev.location)}`);
-    if (ev.notes)    L.push(`DESCRIPTION:${esc(ev.notes)}`);
+    push('BEGIN:VEVENT');
+    push(`UID:${ev.id||dk+'-'+Math.random().toString(36).slice(2)}@kat-app`);
+    push(`DTSTAMP:${nowStamp()}`);
+    push(`DTSTART;TZID=Europe/Paris:${toD(dk,ev.time)}`);
+    push(`DTEND;TZID=Europe/Paris:${toD(dk,endT)}`);
+    push(`SUMMARY:${esc(ev.title)}`);
+    push(`STATUS:${ev.done?'COMPLETED':'CONFIRMED'}`);
+    if (ev.location) push(`LOCATION:${esc(ev.location)}`);
+    if (ev.notes)    push(`DESCRIPTION:${esc(ev.notes)}`);
     const rm = {daily:'DAILY',weekly:'WEEKLY',monthly:'MONTHLY',yearly:'YEARLY'};
-    if (ev.recurrence&&ev.recurrence!=='none') L.push(`RRULE:FREQ=${rm[ev.recurrence]}`);
+    if (ev.recurrence&&ev.recurrence!=='none') push(`RRULE:FREQ=${rm[ev.recurrence]}`);
     (ev.reminders||[]).forEach(m => {
       if (m>0) {
-        L.push('BEGIN:VALARM',`TRIGGER:-PT${m}M`,'ACTION:DISPLAY',`DESCRIPTION:Rappel: ${esc(ev.title)}`,'END:VALARM');
+        push('BEGIN:VALARM');
+        push(`TRIGGER:-PT${m}M`);
+        push('ACTION:DISPLAY');
+        push(`DESCRIPTION:Rappel: ${esc(ev.title)}`);
+        push('END:VALARM');
       }
     });
-    L.push('END:VEVENT');
+    push('END:VEVENT');
   }
 
-  L.push('END:VCALENDAR');
-  return L.join('\r\n');
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
 }
 
 app.get('*', (_, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
