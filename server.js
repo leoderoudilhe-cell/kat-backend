@@ -173,6 +173,15 @@ app.get('/manifest.json', (_, res) => {
   });
 });
 
+
+app.get('/api/env-check', (_, res) => {
+  res.json({
+    has_icloud_email: !!process.env.ICLOUD_EMAIL,
+    has_icloud_password: !!process.env.ICLOUD_PASSWORD,
+    has_icloud_cal_url: !!process.env.ICLOUD_CAL_URL,
+    has_github_token: !!process.env.GITHUB_TOKEN,
+  });
+});
 app.get('/api/ping', (_, res) => res.json({ ok: true, ts: Date.now() }));
 
 app.get('/api/data', (_, res) => {
