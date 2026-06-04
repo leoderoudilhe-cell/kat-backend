@@ -209,14 +209,23 @@ app.post('/api/data', (req, res) => {
     if (b.journal !== undefined && b.journal !== null) {
       for (const [k, v] of Object.entries(b.journal))
         d.journal[k] = { mood: v.mood, text: v.text, date: v.date };
+        // Include photos (max 500KB per entry to avoid giant files)
+        if (Array.isArray(v.photos) && v.photos.length) {
+          let photosStr = JSON.stringify(v.photos);
+          d.journal[k].photos = photosStr.length < 500000 ? v.photos : v.photos.slice(0,2);
+        }
     }
     saveData(d);
-    // Sync to iCloud Calendar in background (non-blocking)
+    // Batch CalDAV — debounced 3s to group rapid changes
     if (b.events !== undefined) {
-      syncToiCloud(d.events).catch(e => console.warn('iCloud sync failed:', e.message));
-      // Supprimer les events effacés depuis iCloud
-      deletedIds.forEach(id => deleteFromiCloud(id).catch(() => {}));
-      if (deletedIds.length) console.log(`🗑️ iCloud delete: ${deletedIds.join(', ')}`);
+      clearTimeout(app._icloudTimer);
+      const eventsSnapshot = d.events;
+      const deletedSnapshot = [...deletedIds];
+      app._icloudTimer = setTimeout(() => {
+        syncToiCloud(eventsSnapshot).catch(e => console.warn('iCloud sync failed:', e.message));
+        deletedSnapshot.forEach(id => deleteFromiCloud(id).catch(() => {}));
+        if (deletedSnapshot.length) console.log(`🗑️ iCloud delete: ${deletedSnapshot.join(', ')}`);
+      }, 3000);
     }
     res.json({ ok: true });
   } catch(e) {
@@ -422,6 +431,7 @@ app.post('/api/delete-event', async (req, res) => {
 
 app.get('*', (_, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
+app._icloudTimer = null;
 app.listen(PORT, () => {
   console.log(`🐱 KAT v3 on :${PORT}`);
   console.log(`📅 webcal://kat-app.onrender.com/ical`);

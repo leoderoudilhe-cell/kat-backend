@@ -51,7 +51,7 @@ input, textarea { font-family: inherit; }
   display: flex; align-items: center; gap: 10px;
   z-index: 100; flex-shrink: 0;
 }
-#content { flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+#content { flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; position: relative; }
 #bottom-nav {
   background: var(--card);
   border-top: 1px solid var(--border);
@@ -115,9 +115,24 @@ input, textarea { font-family: inherit; }
   background: #8E8E93; transition: background .3s; flex-shrink: 0;
 }
 #sync-dot.syncing { background: #007AFF; animation: spin-dot 1s linear infinite; }
-#sync-dot.ok { background: #34C759; }
 #sync-dot.err { background: #FF3B30; }
 @keyframes spin-dot { to { transform: rotate(360deg); } }
+/* ═══ SLIDE ANIMATION ═══ */
+.slide-enter-left  { animation: slideFromRight .25s cubic-bezier(.25,.46,.45,.94) forwards; }
+.slide-enter-right { animation: slideFromLeft  .25s cubic-bezier(.25,.46,.45,.94) forwards; }
+@keyframes slideFromRight { from { opacity:0; transform: translateX(100%) } to { opacity:1; transform: translateX(0) } }
+@keyframes slideFromLeft  { from { opacity:0; transform: translateX(-100%) } to { opacity:1; transform: translateX(0) } }
+/* ═══ SYNC FLASH ═══ */
+#sync-dot.ok { background: var(--green, #34C759); animation: syncFlash 1.5s ease-out forwards; }
+@keyframes syncFlash { 0% { opacity:1; transform:scale(1.5); } 100% { opacity:0.6; transform:scale(1); } }
+/* ═══ COURSE SWIPE ═══ */
+.course-item { overflow: hidden; }
+.course-item-inner { display:flex; align-items:center; gap:12px; width:100%; transition:transform .2s cubic-bezier(.25,.46,.45,.94); }
+.course-item-delete-reveal { position:absolute; right:0; top:0; bottom:0; width:80px; background:#FF3B30; display:flex; align-items:center; justify-content:center; color:white; font-size:13px; font-weight:700; border-radius:0 var(--radius-sm) var(--radius-sm) 0; }
+/* ═══ COURSE SEARCH ═══ */
+.course-search-bar { display:flex; align-items:center; gap:8px; background:var(--bg); border-radius:10px; padding:8px 12px; margin-bottom:12px; }
+.course-search-input { flex:1; background:none; border:none; outline:none; font-size:15px; color:var(--text); }
+.course-search-clear { font-size:16px; color:var(--text3); cursor:pointer; }
 
 #header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 #header-right button { font-size: 20px; width: 36px; height: 36px; display:flex;align-items:center;justify-content:center; border-radius: 10px; }
@@ -226,7 +241,7 @@ input, textarea { font-family: inherit; }
 .month-cell.selected { background: var(--border); }
 .month-day-num { width: 28px; height: 28px; border-radius: 50%; display:flex;align-items:center;justify-content:center; font-size: 14px; font-weight: 600; margin-bottom: 2px; }
 .month-dots { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; }
-.month-dot { width: 5px; height: 5px; border-radius: 50%; }
+.month-dot { width: 8px; height: 8px; border-radius: 4px; }
 
 /* ═══ WEEK VIEW ═══ */
 .week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 10px; }
@@ -850,6 +865,15 @@ let _editingEvDate = null;
 let _reminderInterval = null;
 let _notifSound = null;
 
+// ═══ AUDIOCTX (Mac Safari — feature 5) ═══
+let _audioCtx = null;
+function ensureAudioCtx() {
+  if (_audioCtx) return;
+  try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){}
+}
+document.addEventListener('click', ensureAudioCtx, { once: true });
+document.addEventListener('touchstart', ensureAudioCtx, { once: true, passive: true });
+
 // ═══ IDB LOAD/SAVE ═══
 async function loadAll() {
   try {
@@ -915,11 +939,12 @@ async function syncFromServer() {
       }
       await idbSet('kv', 'settings', S.settings);
     }
-    // Journal: merge (remote text wins, local photos preserved)
+    // Journal: merge (remote text wins, photos: local wins if present)
     if (data.journal) {
       for (const [k, entry] of Object.entries(data.journal)) {
         const local = S.journal[k] || {};
-        S.journal[k] = { ...local, ...entry, photos: local.photos };
+        const localPhotos = local.photos && local.photos.length ? local.photos : (entry.photos || []);
+        S.journal[k] = { ...local, ...entry, photos: localPhotos };
       }
     }
     await idbSet('kv','events',  S.events);
@@ -939,13 +964,31 @@ function scheduleSyncDebounced() {
   clearTimeout(_syncDebounceTimer);
   _syncDebounceTimer = setTimeout(pushToServer, 1500);
 }
+async function compressPhotoForSync(dataUrl) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const maxPx = 400;
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.55));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
 async function pushToServer() {
   setSyncDot('syncing');
   try {
-    // Strip photos from journal before sending
+    // Include photos (compressed) in journal
     const journalClean = {};
     for (const [k, entry] of Object.entries(S.journal)) {
-      journalClean[k] = { mood: entry.mood, text: entry.text, date: entry.date };
+      const photos = entry.photos || [];
+      const compressedPhotos = await Promise.all(photos.map(p => compressPhotoForSync(p)));
+      journalClean[k] = { mood: entry.mood, text: entry.text, date: entry.date, photos: compressedPhotos };
     }
     const settingsClean = { dark: S.settings.dark, soundName: S.settings.soundName }; // don't sync binary sound data
     const payload = { events: S.events, todos: S.todos, journal: journalClean, cats: S.cats, courses: S.courses, ptodos: S.ptodos, settings: settingsClean };
@@ -1033,17 +1076,25 @@ function confirmAndDeleteEvent(evId, originalKey, dk) {
   const sheet = document.createElement('div');
   sheet.id = 'confirm-done-sheet';
   sheet.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;display:flex;align-items:flex-end;animation:fadeIn .2s';
+  const isRecurring = ev.recurrence && ev.recurrence !== 'none';
   sheet.innerHTML = `
     <div style="background:var(--card);border-radius:20px 20px 0 0;width:100%;padding:20px 20px calc(20px + var(--safe-bot,0px));animation:slideUp .3s cubic-bezier(.32,.72,0,1)">
       <div style="width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px"></div>
       <div style="text-align:center;margin-bottom:20px">
         <div style="font-size:36px;margin-bottom:8px">🎉</div>
         <div style="font-size:18px;font-weight:700;margin-bottom:6px">${escHtml(ev.title)}</div>
-        <div style="font-size:14px;color:var(--text2)">Supprimer cet événement de KAT<br>et de ton Apple Calendar ?</div>
+        <div style="font-size:14px;color:var(--text2)">${isRecurring ? 'Événement récurrent — quelle action ?' : 'Supprimer cet événement de KAT<br>et de ton Apple Calendar ?'}</div>
       </div>
+      ${isRecurring ? `
+      <button id="confirm-done-instance" style="display:block;width:100%;background:var(--kat);color:white;border:none;border-radius:14px;padding:15px;font-size:16px;font-weight:700;font-family:inherit;cursor:pointer;margin-bottom:10px">
+        ✅ Cet événement seulement
+      </button>
+      <button id="confirm-done-yes" style="display:block;width:100%;background:#FF3B30;color:white;border:none;border-radius:14px;padding:15px;font-size:16px;font-weight:700;font-family:inherit;cursor:pointer;margin-bottom:10px">
+        🗑 Tous les événements
+      </button>` : `
       <button id="confirm-done-yes" style="display:block;width:100%;background:var(--green);color:white;border:none;border-radius:14px;padding:15px;font-size:16px;font-weight:700;font-family:inherit;cursor:pointer;margin-bottom:10px">
         ✅ Oui, c'est fait !
-      </button>
+      </button>`}
       <button id="confirm-done-no" style="display:block;width:100%;background:var(--border);color:var(--text);border:none;border-radius:14px;padding:15px;font-size:16px;font-weight:600;font-family:inherit;cursor:pointer">
         Annuler
       </button>
@@ -1070,6 +1121,19 @@ function confirmAndDeleteEvent(evId, originalKey, dk) {
     toast('🎉 Événement supprimé !');
   });
 
+  // "This instance only" handler (recurring events)
+  const instanceBtn = document.getElementById('confirm-done-instance');
+  if (instanceBtn) {
+    instanceBtn.addEventListener('click', async () => {
+      sheet.remove();
+      haptic(20);
+      if (!ev.doneInstances) ev.doneInstances = {};
+      ev.doneInstances[dk] = true;
+      await saveData();
+      render();
+      toast('✅ Instance marquée faite');
+    });
+  }
   document.getElementById('confirm-done-no').addEventListener('click', () => sheet.remove());
   sheet.addEventListener('click', e => { if(e.target===sheet) sheet.remove(); });
 }
@@ -1142,10 +1206,6 @@ document.getElementById('undo-btn').onclick = async () => {
 function render() {
   updateNavUI();
   const content = document.getElementById('content');
-  content.classList.add('fading');
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => { content.classList.remove('fading'); });
-  });
   if (S.tab === 'calendar') {
     document.getElementById('view-tabs').style.display = '';
     document.getElementById('date-nav').style.display = '';
@@ -1166,6 +1226,16 @@ function render() {
     document.getElementById('view-tabs').style.display = 'none';
     document.getElementById('date-nav').style.display = 'none';
     renderCourses(content);
+  }
+  // Slide animation (feature 3)
+  if (_lastSlideDir !== 0) {
+    content.classList.remove('slide-enter-left', 'slide-enter-right');
+    void content.offsetWidth; // reflow
+    content.classList.add(_lastSlideDir > 0 ? 'slide-enter-left' : 'slide-enter-right');
+    content.addEventListener('animationend', () => {
+      content.classList.remove('slide-enter-left', 'slide-enter-right');
+    }, { once: true });
+    _lastSlideDir = 0;
   }
   updateDateLabel();
   updateFab();
@@ -1340,6 +1410,15 @@ function renderDay(container) {
   });
 }
 
+function formatEventTime(ev) {
+  if (!ev.time) return '';
+  const [h, m] = ev.time.split(':').map(Number);
+  const dur = parseInt(ev.duration) || 60;
+  const endMin = h*60 + m + dur;
+  const endH = String(Math.floor(endMin/60)).padStart(2,'0');
+  const endM = String(endMin%60).padStart(2,'0');
+  return `${ev.time}–${endH}:${endM}`;
+}
 function renderEventBlock(ev, dk, originalKey) {
   const cat = getCat(ev.catId);
   const done = isEventDone(ev, dk);
@@ -1362,8 +1441,7 @@ function renderEventBlock(ev, dk, originalKey) {
     <div class="event-info">
       <div class="event-title">${escHtml(ev.title)} ${countdown}</div>
       <div class="event-meta">
-        ${ev.time ? `<span>${escHtml(ev.time)}</span>` : ''}
-        ${ev.duration ? `<span>${escHtml(String(ev.duration))} min</span>` : ''}
+        ${ev.time ? `<span>${escHtml(formatEventTime(ev))}</span>` : ''}
         ${cat.emoji} ${escHtml(cat.name)}
         ${recBadge}
       </div>
@@ -2216,7 +2294,9 @@ document.querySelectorAll('.view-tab').forEach(btn => {
   });
 });
 
+let _lastSlideDir = 0;
 function shiftDate(delta) {
+  _lastSlideDir = delta;
   const d = parseDate(S.date);
   if (S.view === 'day')   d.setDate(d.getDate() + delta);
   else if (S.view === 'week')  d.setDate(d.getDate() + delta*7);
@@ -2240,6 +2320,7 @@ content.addEventListener('touchend', e => {
   const dy = e.changedTouches[0].clientY - (_swipeY || 0);
   // Seuil augmenté à 100px + ratio horizontal/vertical pour éviter les swipes accidentels
   if (Math.abs(dx) > 100 && Math.abs(dx) > Math.abs(dy) * 1.8) {
+    navigator.vibrate && navigator.vibrate(20);
     shiftDate(dx < 0 ? 1 : -1);
   }
   _swipeX = null; _swipeY = null;
@@ -2350,8 +2431,30 @@ function renderCatsSettings() {
       renderCatsSettings();
     });
 
+    // Reorder buttons
+    const upBtn = document.createElement('button');
+    upBtn.className = 'btn-ghost';
+    upBtn.textContent = '↑';
+    upBtn.style.cssText = 'font-size:14px;color:var(--text3);padding:4px 6px';
+    upBtn.disabled = i === 0;
+    upBtn.addEventListener('click', async () => {
+      const cats = getCats();
+      if (i > 0) { [S.cats[i-1], S.cats[i]] = [cats[i], cats[i-1]]; await saveData(); renderCatsSettings(); }
+    });
+    const downBtn = document.createElement('button');
+    downBtn.className = 'btn-ghost';
+    downBtn.textContent = '↓';
+    downBtn.style.cssText = 'font-size:14px;color:var(--text3);padding:4px 6px';
+    downBtn.disabled = i === getCats().length - 1;
+    downBtn.addEventListener('click', async () => {
+      const cats = getCats();
+      if (i < cats.length-1) { [S.cats[i], S.cats[i+1]] = [cats[i+1], cats[i]]; await saveData(); renderCatsSettings(); }
+    });
+
     row.appendChild(dot);
     row.appendChild(name);
+    row.appendChild(upBtn);
+    row.appendChild(downBtn);
     row.appendChild(editBtn);
     row.appendChild(del);
     wrapper.appendChild(row);
@@ -2916,6 +3019,7 @@ async function scheduleDailyReminder() {
     const sound = await idbGet('blobs', 'sound');
     if (sound) {
       try {
+        if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume();
         const audio = new Audio(sound);
         audio.play().catch(()=>{});
       } catch(e){}
@@ -2943,6 +3047,20 @@ function cancelDailyReminder() {
 }
 
 // ═══ MÉTÉO WIDGET ═══
+// Weather cache
+const WX_CACHE_KEY = 'kat_wx';
+const WX_TTL = 30 * 60 * 1000;
+function getCachedWeather() {
+  try {
+    const c = JSON.parse(localStorage.getItem(WX_CACHE_KEY) || 'null');
+    if (c && Date.now() - c.ts < WX_TTL) return c.data;
+  } catch(e) {}
+  return null;
+}
+function setCachedWeather(data) {
+  try { localStorage.setItem(WX_CACHE_KEY, JSON.stringify({ ts: Date.now(), data })); } catch(e) {}
+}
+
 async function fetchWeatherWidget() {
   try {
     const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=43.5513&longitude=7.0128&current_weather=true&timezone=Europe/Paris', { signal: AbortSignal.timeout(5000) });
@@ -3403,6 +3521,25 @@ async function autoSyncFromApple() {
 boot();
 
 // ═══ COURSES ═══
+function shareShoppingList() {
+  const unchecked = (S.courses.items || []).filter(i => !i.checked);
+  if (!unchecked.length) { toast('Aucun article à partager'); return; }
+  const cats = {};
+  unchecked.forEach(item => {
+    const cat = COURSE_CATS.find(c => c.id === item.category);
+    const catName = cat ? cat.icon + ' ' + cat.name : '📦 Autres';
+    if (!cats[catName]) cats[catName] = [];
+    cats[catName].push((item.qty ? item.qty + ' ' : '') + item.name);
+  });
+  const text = '🛒 Liste de courses KAT\n\n' +
+    Object.entries(cats).map(([cat, items]) => `${cat}\n${items.map(i => '• ' + i).join('\n')}`).join('\n\n');
+  if (navigator.share) {
+    navigator.share({ title: 'Liste de courses', text }).catch(() => {});
+  } else {
+    navigator.clipboard?.writeText(text).then(() => toast('📋 Liste copiée !'));
+  }
+}
+
 const COURSE_CATS = [
   { id: 'fruits-legumes',    name: 'Fruits & Légumes',    icon: '🥦', color: '#34C759' },
   { id: 'viandes',           name: 'Viandes & Poissons',  icon: '🥩', color: '#FF3B30' },
@@ -3444,6 +3581,8 @@ function renderCourses(container) {
   const remaining = items.filter(i => !i.checked).length;
   const hasChecked = items.some(i => i.checked);
 
+  // Share button always visible
+  const shareBtn = `<button onclick="shareShoppingList()" style="background:none;border:none;font-size:18px;cursor:pointer;padding:4px;color:var(--kat)">📤</button>`;
   let actionsHtml = '';
   if (hasChecked) {
     actionsHtml = `
@@ -3510,7 +3649,10 @@ function renderCourses(container) {
     <div style="padding:16px">
       <div class="courses-header">
         <div>
-          <div class="courses-title">Ma liste</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="courses-title">Ma liste</div>
+            <button onclick="shareShoppingList()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--kat);padding:4px" title="Partager la liste">📤</button>
+          </div>
           <div class="courses-count">${total} article${total!==1?'s':''} · ${remaining} restant${remaining!==1?'s':''}</div>
         </div>
         <div class="courses-header-actions">${actionsHtml}</div>
