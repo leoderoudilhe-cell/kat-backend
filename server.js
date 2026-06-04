@@ -544,12 +544,16 @@ app.get('/api/push-key', (_, res) => {
 app.post('/api/push-subscribe', (req, res) => {
   const sub = req.body;
   if (!sub || !sub.endpoint) return res.status(400).json({ error: 'Invalid subscription' });
-  // Remove any existing sub with same endpoint, then add new
   _pushSubs = _pushSubs.filter(s => s.endpoint !== sub.endpoint);
   _pushSubs.push({ ...sub, ts: Date.now() });
-  saveData(loadData()); // persist
+  // Save IMMEDIATELY to file + GitHub (don't debounce for subscriptions)
+  const d = loadData();
+  d._pushSubs = _pushSubs;
+  _cachedData = d;
+  try { fs.writeFileSync(DATA_FILE, JSON.stringify(d, null, 2)); } catch(e){}
+  persistDataToGitHub(d).catch(()=>{});
   console.log(`📲 Push subscription saved (total: ${_pushSubs.length})`);
-  res.json({ ok: true });
+  res.json({ ok: true, count: _pushSubs.length });
 });
 
 // Remove push subscription (unsubscribe)
@@ -647,6 +651,19 @@ function scheduleEventReminders(events) {
     }
   }
 }
+
+// Test push — send immediate notification to all devices
+app.post('/api/push-test', async (req, res) => {
+  if (!_pushSubs.length) return res.status(404).json({ error: 'No subscriptions', count: 0 });
+  const { title = 'KAT 🐱', body = 'Test notification !' } = req.body || {};
+  await sendPushToAll(title, body, { tag: 'test-' + Date.now() });
+  res.json({ ok: true, sent_to: _pushSubs.length });
+});
+
+// Debug: how many subscriptions
+app.get('/api/push-count', (_, res) => {
+  res.json({ count: _pushSubs.length, subs: _pushSubs.map(s => ({ endpoint: s.endpoint.slice(0,60), ts: s.ts })) });
+});
 
 // Delete a specific event from iCloud CalDAV
 app.post('/api/delete-event', async (req, res) => {
