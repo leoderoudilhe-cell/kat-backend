@@ -598,6 +598,18 @@ input, textarea { font-family: inherit; }
     <h2>Paramètres</h2>
   </div>
   <div class="settings-section">
+    <div class="section-title">Notifications</div>
+    <div style="background:var(--card);border-radius:var(--radius-sm);overflow:hidden">
+      <div class="settings-row">
+        <span class="settings-row-label">Rappels et alertes</span>
+        <button class="btn-ghost" id="notif-btn" onclick="requestNotifPermission()">Activer</button>
+      </div>
+      <div class="settings-row" id="notif-status-row" style="display:none">
+        <span class="settings-row-label" style="color:var(--text2);font-size:13px" id="notif-status-label"></span>
+      </div>
+    </div>
+  </div>
+  <div class="settings-section">
     <div class="section-title">Affichage</div>
     <div style="background:var(--card);border-radius:var(--radius-sm);overflow:hidden">
       <div class="settings-row">
@@ -1858,9 +1870,55 @@ function openSettings() {
   document.getElementById('settings-panel').classList.add('open');
   const dark = document.documentElement.dataset.dark === '1';
   document.getElementById('dark-toggle').classList.toggle('on', dark);
-  // Webcal URL
   const webcalUrl = 'webcal://kat-app.onrender.com/ical';
   document.getElementById('webcal-label').textContent = webcalUrl;
+  // Update notification button state
+  updateNotifBtn();
+}
+
+function updateNotifBtn() {
+  const btn = document.getElementById('notif-btn');
+  const statusRow = document.getElementById('notif-status-row');
+  const statusLbl = document.getElementById('notif-status-label');
+  if (!btn) return;
+  if (!('Notification' in window)) {
+    btn.textContent = 'Non supporté';
+    btn.disabled = true;
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    btn.textContent = '✅ Activées';
+    btn.style.color = 'var(--green)';
+    statusRow.style.display = '';
+    statusLbl.textContent = 'Les rappels et alertes sont actifs.';
+  } else if (Notification.permission === 'denied') {
+    btn.textContent = '❌ Bloquées';
+    btn.style.color = 'var(--red)';
+    statusRow.style.display = '';
+    statusLbl.textContent = 'Autorise les notifications dans Réglages iPhone → Safari → Notifications.';
+  } else {
+    btn.textContent = 'Activer';
+  }
+}
+
+async function requestNotifPermission() {
+  if (!('Notification' in window)) {
+    toast('⚠️ Notifications non supportées sur ce navigateur');
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    toast('✅ Notifications déjà activées !');
+    return;
+  }
+  // Must be installed on home screen + opened from there for iOS
+  const perm = await Notification.requestPermission();
+  updateNotifBtn();
+  if (perm === 'granted') {
+    toast('🔔 Notifications activées !');
+    scheduleDailyReminder();
+  } else if (perm === 'denied') {
+    toast('❌ Bloquées — autorise dans Réglages iPhone');
+  }
 }
 function closeSettings() { document.getElementById('settings-panel').classList.remove('open'); }
 
