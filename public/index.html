@@ -2292,6 +2292,50 @@ async function showBriefing() {
     factDiv.appendChild(textEl);
     card.appendChild(factDiv);
   }
+
+  // ── Anecdote fonds marins ──
+  const marineAnecdotes = [
+    { emoji:'🐙', fact:'Les pieuvres ont trois cœurs et leur sang est bleu grâce à une molécule à base de cuivre : l\'hémocyanine.' },
+    { emoji:'🐋', fact:'La baleine bleue a un cœur de la taille d\'une petite voiture. Ses battements s\'entendent à plus de 3 km sous l\'eau.' },
+    { emoji:'🦑', fact:'Un calmar colossal peut avoir des yeux de la taille d\'une assiette — les plus grands yeux du règne animal, jusqu\'à 27 cm de diamètre.' },
+    { emoji:'🦐', fact:'La crevette-mante peut frapper à 80 km/h avec une force suffisante pour briser du verre. Ses yeux perçoivent 16 types de photorecepteurs (l\'humain en a 3).' },
+    { emoji:'🪸', fact:'Le poisson-perroquet mange le corail et le digère, puis excrète du sable blanc. Une plage tropicale est en partie faite de ses déjections.' },
+    { emoji:'🦈', fact:'Les requins existent depuis 450 millions d\'années — bien avant les arbres (350 Ma) et les dinosaures (230 Ma).' },
+    { emoji:'🐠', fact:'Les poissons-clowns naissent tous mâles. Quand la femelle dominante meurt, le mâle le plus grand change de sexe pour la remplacer.' },
+    { emoji:'🐙', fact:'Les poulpes ont neuf cerveaux — un central et un dans chaque tentacule. Chaque bras peut agir de façon autonome.' },
+    { emoji:'🌊', fact:'La dorsale médio-océanique est la plus grande chaîne de montagnes du monde : 65 000 km de long, entièrement sous l\'eau.' },
+    { emoji:'🏔️', fact:'La fosse des Mariannes atteint 11 034 m de profondeur. La pression y est 1 100 fois celle de la surface, soit l\'équivalent de 50 avions commerciaux posés sur 1 cm².' },
+    { emoji:'🐟', fact:'Le cœlacanthe est un poisson préhistorique que l\'on croyait disparu depuis 65 millions d\'années. Il a été redécouvert vivant en 1938, dans l\'océan Indien.' },
+    { emoji:'🦭', fact:'Les dauphins donnent des surnoms sifflés à leurs congénères pour s\'identifier. Chaque individu a une signature sonore unique.' },
+    { emoji:'🌡️', fact:'L\'océan absorbe 90% de la chaleur excédentaire produite par le réchauffement climatique, ce qui le rend 0,1°C plus chaud chaque décennie.' },
+    { emoji:'🐡', fact:'Certains poissons des abysses (comme l\'anglerfish) produisent leur propre lumière grâce à une réaction chimique : la bioluminescence.' },
+    { emoji:'🧲', fact:'La boussole naturelle de certains poissons migrateurs utilise le champ magnétique terrestre. Les anguilles de l\'Atlantique parcourent 7 000 km jusqu\'à la mer des Sargasses pour se reproduire.' },
+    { emoji:'🪼', fact:'La méduse Turritopsis dohrnii est biologiquement immortelle : elle peut revenir à l\'état de polype et recommencer son cycle de vie indéfiniment.' },
+    { emoji:'🏖️', fact:'La mer Méditerranée s\'est entièrement asséchée il y a 5,96 millions d\'années lors de la crise de salinité messinienne. Elle s\'est reremplie en 1 000 ans depuis l\'Atlantique.' },
+    { emoji:'🐬', fact:'Les dauphins dorment avec un seul hémisphère cérébral à la fois — l\'autre reste éveillé pour respirer et surveiller les prédateurs.' },
+    { emoji:'🦀', fact:'Le crabe de cocotier est le plus grand arthropode terrestre (4 kg, 1 m d\'envergure). Il est capable d\'ouvrir une noix de coco avec ses pinces.' },
+    { emoji:'🌿', fact:'Les herbiers de posidonie de la Côte d\'Azur sont parmi les plus anciens organismes vivants : certaines colonies ont plus de 80 000 ans.' },
+    { emoji:'🐙', fact:'Le poulpe change de couleur et de texture en moins de 0,3 secondes. Des études ont montré qu\'il rêve : sa peau change de motifs pendant son sommeil.' },
+    { emoji:'🦦', fact:'Les loutres de mer se tiennent par la patte en dormant pour ne pas dériver séparées. Elles utilisent des pierres pour casser les coquillages.' },
+    { emoji:'⚡', fact:'La torpille électrique (raie) peut générer une décharge de 220 volts — assez pour assommer un homme adulte ou un requin.' },
+  ];
+
+  const mariPick = marineAnecdotes[Math.floor(Math.random() * marineAnecdotes.length)];
+  const marineDiv = document.createElement('div');
+  marineDiv.style.cssText = 'padding:12px;background:linear-gradient(135deg,rgba(0,168,255,0.08),rgba(0,100,200,0.05));border-radius:10px;margin-top:8px;border-left:3px solid #0EA5E9';
+  const mariTitle = document.createElement('div');
+  mariTitle.className = 'section-title';
+  mariTitle.textContent = '🌊 Fonds marins & Océan';
+  const mariEmoji = document.createElement('div');
+  mariEmoji.style.cssText = 'font-size:28px;margin:6px 0 4px';
+  mariEmoji.textContent = mariPick.emoji;
+  const mariText = document.createElement('div');
+  mariText.style.cssText = 'font-size:13px;color:var(--text2);line-height:1.6';
+  mariText.textContent = mariPick.fact;
+  marineDiv.appendChild(mariTitle);
+  marineDiv.appendChild(mariEmoji);
+  marineDiv.appendChild(mariText);
+  card.appendChild(marineDiv);
 }
 function closeBriefing() { document.getElementById('briefing-overlay').classList.remove('open'); }
 
