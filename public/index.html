@@ -636,6 +636,13 @@ input, textarea { font-family: inherit; }
   <div class="settings-section">
     <div class="section-title">Calendrier</div>
     <div style="background:var(--card);border-radius:var(--radius-sm);overflow:hidden">
+      <div class="settings-row" style="background:linear-gradient(135deg,rgba(0,122,255,0.08),rgba(0,122,255,0.04));border-radius:var(--radius-sm)">
+        <div>
+          <div class="settings-row-label" style="font-weight:700">📅 Ouvrir dans Apple Calendar</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">Import direct — fonctionne toujours</div>
+        </div>
+        <button class="btn-ghost" style="color:#007AFF;font-weight:700" onclick="openInAppleCalendar()">Importer</button>
+      </div>
       <div class="settings-row">
         <span class="settings-row-label">Exporter .ics (télécharger)</span>
         <button class="btn-ghost" onclick="exportIcsDownload()">Exporter</button>
@@ -2566,6 +2573,66 @@ function startCountdownTimer() {
 }
 
 // ═══ EXPORT ICS MANUEL ═══
+// ── Ouvrir directement dans Apple Calendar (contourne le bug webcal iOS 26) ──
+function openInAppleCalendar() {
+  // Build ics content
+  const ics = buildIcsContent();
+  // Create blob with text/calendar MIME type
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  // On iOS, opening a blob: URL with text/calendar triggers Apple Calendar import dialog
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'kat.ics';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
+  toast('📅 Ouvre le fichier .ics pour importer dans Calendrier');
+}
+
+function buildIcsContent() {
+  const CRLF = '\r\n';
+  const esc = s => (s||'').replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\\;').replace(/\n/g,'\\n');
+  const toD = (d, t) => {
+    const [y,mo,dd] = d.split('-').map(Number);
+    const [hh,mm] = (t||'09:00').split(':').map(Number);
+    const p = n => String(n).padStart(2,'0');
+    return `${y}${p(mo)}${p(dd)}T${p(hh)}${p(mm)}00`;
+  };
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//KAT App//KAT Agenda//FR',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'X-WR-CALNAME:KAT',
+  ];
+  for (const [dk, evs] of Object.entries(S.events)) {
+    if (!Array.isArray(evs)) continue;
+    for (const ev of evs) {
+      if (!ev.title) continue;
+      const dur = parseInt(ev.duration) || 60;
+      const [h, mi] = (ev.time||'09:00').split(':').map(Number);
+      const tm = h*60+mi+dur;
+      const endT = `${String(Math.floor(tm/60)).padStart(2,'0')}:${String(tm%60).padStart(2,'0')}`;
+      lines.push('BEGIN:VEVENT',
+        `UID:${ev.id||dk}@kat-app`,
+        `DTSTAMP:${new Date().toISOString().replace(/[-:]/g,'').split('.')[0]+'Z'}`,
+        `DTSTART:${toD(dk,ev.time)}`,
+        `DTEND:${toD(dk,endT)}`,
+        `SUMMARY:${esc(ev.title)}`);
+      if (ev.location) lines.push(`LOCATION:${esc(ev.location)}`);
+      if (ev.notes)    lines.push(`DESCRIPTION:${esc(ev.notes)}`);
+      const rm = {daily:'DAILY',weekly:'WEEKLY',monthly:'MONTHLY',yearly:'YEARLY'};
+      if (ev.recurrence && ev.recurrence !== 'none') lines.push(`RRULE:FREQ=${rm[ev.recurrence]}`);
+      lines.push('END:VEVENT');
+    }
+  }
+  lines.push('END:VCALENDAR');
+  return lines.join(CRLF);
+}
+
 function exportIcsDownload() {
   const L = [
     'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//KAT//FR',
