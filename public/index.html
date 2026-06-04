@@ -118,10 +118,16 @@ input, textarea { font-family: inherit; }
 #sync-dot.err { background: #FF3B30; }
 @keyframes spin-dot { to { transform: rotate(360deg); } }
 /* ═══ SLIDE ANIMATION ═══ */
-.slide-enter-left  { animation: slideFromRight .25s cubic-bezier(.25,.46,.45,.94) forwards; }
-.slide-enter-right { animation: slideFromLeft  .25s cubic-bezier(.25,.46,.45,.94) forwards; }
-@keyframes slideFromRight { from { opacity:0; transform: translateX(100%) } to { opacity:1; transform: translateX(0) } }
-@keyframes slideFromLeft  { from { opacity:0; transform: translateX(-100%) } to { opacity:1; transform: translateX(0) } }
+.slide-enter-left  { animation: slideFromRight .3s cubic-bezier(.22,1,.36,1) forwards; }
+.slide-enter-right { animation: slideFromLeft  .3s cubic-bezier(.22,1,.36,1) forwards; }
+@keyframes slideFromRight {
+  from { opacity:0.3; transform: translateX(60%) scale(0.96); }
+  to   { opacity:1;   transform: translateX(0)   scale(1); }
+}
+@keyframes slideFromLeft {
+  from { opacity:0.3; transform: translateX(-60%) scale(0.96); }
+  to   { opacity:1;   transform: translateX(0)    scale(1); }
+}
 /* ═══ SYNC FLASH ═══ */
 #sync-dot.ok { background: var(--green, #34C759); animation: syncFlash 1.5s ease-out forwards; }
 @keyframes syncFlash { 0% { opacity:1; transform:scale(1.5); } 100% { opacity:0.6; transform:scale(1); } }
@@ -1229,12 +1235,15 @@ function render() {
   }
   // Slide animation (feature 3)
   if (_lastSlideDir !== 0) {
+    content.style.willChange = 'transform, opacity'; // GPU acceleration hint
     content.classList.remove('slide-enter-left', 'slide-enter-right');
-    void content.offsetWidth; // reflow
+    void content.offsetWidth; // force reflow for animation restart
     content.classList.add(_lastSlideDir > 0 ? 'slide-enter-left' : 'slide-enter-right');
     content.addEventListener('animationend', () => {
       content.classList.remove('slide-enter-left', 'slide-enter-right');
+      content.style.willChange = '';
     }, { once: true });
+    haptic(12); // subtle haptic feedback
     _lastSlideDir = 0;
   }
   updateDateLabel();
@@ -2320,7 +2329,8 @@ content.addEventListener('touchend', e => {
   const dy = e.changedTouches[0].clientY - (_swipeY || 0);
   // Seuil augmenté à 100px + ratio horizontal/vertical pour éviter les swipes accidentels
   if (Math.abs(dx) > 100 && Math.abs(dx) > Math.abs(dy) * 1.8) {
-    navigator.vibrate && navigator.vibrate(20);
+    // navigator.vibrate ne fonctionne pas sur iOS — on utilise un tick audio subtil
+    haptic(10);
     shiftDate(dx < 0 ? 1 : -1);
   }
   _swipeX = null; _swipeY = null;
@@ -3366,7 +3376,24 @@ function renderColorPalette(currentColor) {
 
 // ═══ HAPTICS ═══
 function haptic(pattern) {
-  if (navigator.vibrate) navigator.vibrate(pattern || 30);
+  // Android: vibration
+  if (navigator.vibrate) {
+    navigator.vibrate(typeof pattern === 'number' ? pattern : pattern);
+    return;
+  }
+  // iOS: petit tick audio via AudioContext (pas de son audible, juste le retour physique du haut-parleur)
+  try {
+    if (!_audioCtx) ensureAudioCtx();
+    if (!_audioCtx) return;
+    const osc = _audioCtx.createOscillator();
+    const gain = _audioCtx.createGain();
+    osc.connect(gain); gain.connect(_audioCtx.destination);
+    osc.frequency.value = 200;
+    gain.gain.setValueAtTime(0.001, _audioCtx.currentTime);
+    gain.gain.linearRampToValueAtTime(0, _audioCtx.currentTime + 0.01);
+    osc.start(_audioCtx.currentTime);
+    osc.stop(_audioCtx.currentTime + 0.01);
+  } catch(e) {}
 }
 
 // ═══ EXPORT JOURNAL PDF ═══
