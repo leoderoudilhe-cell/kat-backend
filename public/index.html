@@ -3381,6 +3381,8 @@ async function autoSyncFromApple() {
     if (!resp.ok) return;
     const data = await resp.json();
     if (!data.events || !data.events.length) return;
+    // Recovery mode: if local IDB is empty, import ALL events including KAT-originated
+    const localEmpty = Object.keys(S.events).length === 0;
     let added = 0;
     for (const ev of data.events) {
       if (!ev.date || !ev.title) continue;
@@ -3390,7 +3392,8 @@ async function autoSyncFromApple() {
         S.events[ev.date].push({
           id: ev.id, title: ev.title, time: ev.time || '09:00',
           duration: ev.duration || 60, catId: 'work', done: false,
-          location: ev.location || '', notes: ev.notes || '', fromApple: true
+          location: ev.location || '', notes: ev.notes || '',
+          fromApple: !localEmpty // tag as fromApple only if not recovery
         });
         added++;
       }
@@ -3398,6 +3401,7 @@ async function autoSyncFromApple() {
     if (added > 0) {
       await saveData();
       render();
+      if (localEmpty) toast('🔄 Données restaurées depuis iCloud (' + added + ' events)');
       toast();
     }
   } catch(e) { /* silencieux si hors-ligne */ }

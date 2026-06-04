@@ -542,7 +542,7 @@ async function autoSyncFromiCloud() {
         const get = f => { const m = ics.match(new RegExp(f + '[^:]*:([^\\r\\n]+)')); return m ? m[1].trim() : ''; };
         const uid = get('UID'), summary = get('SUMMARY'), dtstart = get('DTSTART');
         if (!uid || !summary || !dtstart) continue;
-        if (uid.includes('@kat-app')) continue; // skip KAT-originated events
+        // Don't skip @kat-app events — they need to come back if KAT lost its data
         const evId = uid.replace(/@.*/,'').slice(0,40);
         if (allKatIds.has(evId)) continue; // already in KAT
 
