@@ -161,6 +161,8 @@ input, textarea { font-family: inherit; }
   box-shadow: var(--shadow); cursor: pointer; position: relative;
   transition: transform .15s, box-shadow .15s;
   -webkit-tap-highlight-color: transparent;
+  user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .event-block:active { transform: scale(0.98); }
 .event-block.done { opacity: 0.5; }
@@ -1309,7 +1311,31 @@ function attachEventHandlers(container) {
 
   // Event block tap → edit
   container.querySelectorAll('.event-block').forEach(el => {
+    let _pressTimer = null;
+    let _pressing = false;
+
+    el.addEventListener('touchstart', e => {
+      if (e.target.closest('.event-actions')) return;
+      _pressing = false;
+      _pressTimer = setTimeout(() => {
+        _pressing = true;
+        navigator.vibrate && navigator.vibrate([50,30,50]);
+        toggleDone(el.dataset.evId, el.dataset.evDate, el.dataset.evDk);
+      }, 600);
+    }, { passive: true });
+
+    el.addEventListener('touchmove', () => {
+      clearTimeout(_pressTimer); _pressTimer = null;
+    }, { passive: true });
+
+    el.addEventListener('touchend', e => {
+      if (_pressTimer) { clearTimeout(_pressTimer); _pressTimer = null; }
+      // If long press fired, don't open modal
+      if (_pressing) { _pressing = false; return; }
+    }, { passive: true });
+
     el.addEventListener('click', e => {
+      if (_pressing) return;
       if (e.target.closest('.event-actions')) return;
       openEventModal(el.dataset.evDate, el.dataset.evId);
     });
