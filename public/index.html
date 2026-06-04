@@ -630,14 +630,21 @@ input, textarea { font-family: inherit; }
 <div class="modal-overlay" id="todo-modal" role="dialog" aria-label="Tâche">
   <div class="modal-sheet">
     <div class="modal-handle"></div>
-    <div class="modal-title">Nouvelle tâche</div>
-    <div class="form-group">
-      <label class="form-label" for="todo-text-input">Tâche</label>
-      <input class="form-input" id="todo-text-input" type="text" placeholder="Ex : Appeler le médecin…" maxlength="100">
-    </div>
-    <button class="btn-primary" id="todo-save-btn">Ajouter</button>
-    <div style="text-align:center;margin-top:12px">
+    <div class="modal-header">
       <button class="btn-ghost" onclick="closeTodoModal()">Annuler</button>
+      <span class="modal-title" style="font-size:17px;font-weight:700">Nouvelle tâche</span>
+      <button class="btn-ghost" style="color:var(--kat);font-weight:700" id="todo-save-btn">Ajouter</button>
+    </div>
+    <div style="padding:0 14px 20px;display:flex;flex-direction:column;gap:12px">
+      <div class="card"><div class="section">
+        <input class="form-input" id="todo-text-input" type="text" placeholder="Nom de la tâche…" maxlength="100" autocomplete="off" style="font-size:17px;padding:6px 0">
+      </div></div>
+      <div class="section-title">Priorité</div>
+      <div style="display:flex;gap:8px" id="todo-prio-chips">
+        <button class="todo-prio-chip" data-prio="high"   style="flex:1;border:2px solid #FF3B30;background:rgba(255,59,48,0.1);color:#FF3B30;border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">🔴 Haute</button>
+        <button class="todo-prio-chip selected" data-prio="medium" style="flex:1;border:2px solid #FF9500;background:rgba(255,149,0,0.2);color:#FF9500;border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transform:scale(1.05)">🟡 Moyenne</button>
+        <button class="todo-prio-chip" data-prio="low"    style="flex:1;border:2px solid #8E8E93;background:rgba(142,142,147,0.1);color:#8E8E93;border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">⚪ Basse</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1191,11 +1198,11 @@ function renderDay(container) {
   }
   html += '</div></div>';
 
-  // Todos section
+  // Todos section (daily)
   html += `<div class="card">
     <div class="section">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <div class="section-title" style="margin-bottom:0">Tâches</div>
+        <div class="section-title" style="margin-bottom:0">✅ Tâches du jour</div>
         ${todos.length ? `<div style="display:flex;align-items:center;gap:6px">
           <span style="font-size:13px;color:var(--text2)">${doneTodos}/${todos.length}</span>
           ${renderProgressRing(pct)}
@@ -1209,9 +1216,45 @@ function renderDay(container) {
     }
   }
   html += '</div></div>';
-  html += '</div>';
+  // Persistent todos section at bottom of day view
+  if (S.ptodos && S.ptodos.length > 0) {
+    const ptAll = S.ptodos;
+    const ptDone = ptAll.filter(p=>p.done).length;
+    const ptPct = Math.round(ptDone/ptAll.length*100);
+    const sorted = [...ptAll].sort((a,b)=>({high:0,medium:1,low:2}[a.priority||'low']||2)-({high:0,medium:1,low:2}[b.priority||'low']||2));
+    html += '<div class="card"><div class="section">';
+    html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div class="section-title" style="margin-bottom:0">📌 Tâches persistantes</div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:13px;color:var(--text2)">${ptDone}/${ptAll.length}</span>
+        ${renderProgressRing(ptPct)}
+      </div>
+    </div>`;
+    for (const pt of sorted.slice(0,4)) {
+      const pr = (typeof PRIO!=="undefined"&&PRIO[pt.priority])||{color:"#8E8E93",bg:"rgba(142,142,147,0.1)",label:"⚪ Basse"};
+      html += `<div class="todo-item ptodo-day-item" data-ptid="${escHtml(pt.id)}" style="border-left:3px solid ${pr.color};padding-left:8px">
+        <div class="todo-check${pt.done?" done":""} ptcheck-day" data-ptid="${escHtml(pt.id)}"></div>
+        <span class="todo-text${pt.done?" done":""} ptodo-text-day"></span>
+        <span style="font-size:9px;background:${pr.bg};color:${pr.color};border-radius:8px;padding:1px 6px;font-weight:700;margin-left:auto">${pr.label}</span>
+      </div>`;
+    }
+    if (sorted.length>4) html+=`<div style="font-size:12px;color:var(--text2);text-align:center;padding:6px 0;cursor:pointer" onclick="setTab('todos')">+${sorted.length-4} autres →</div>`;
+    html += '</div></div>';
+  }
   container.innerHTML = html;
   attachEventHandlers(container);
+  // Wire persistent todo checks in day view
+  container.querySelectorAll('.ptcheck-day').forEach(el => {
+    el.addEventListener('click', async () => {
+      const pt = S.ptodos.find(p=>p.id===el.dataset.ptid);
+      if (pt) { pt.done=!pt.done; haptic(30); await saveData(); render(); }
+    });
+  });
+  container.querySelectorAll('.ptodo-text-day').forEach(span => {
+    const ptid = span.closest('[data-ptid]')?.dataset.ptid;
+    const pt = S.ptodos.find(p=>p.id===ptid);
+    if (pt) span.textContent = pt.text;
+  });
 }
 
 function renderEventBlock(ev, dk, originalKey) {
@@ -1243,12 +1286,13 @@ function renderEventBlock(ev, dk, originalKey) {
       </div>
       ${locBadge}
     </div>
-    <div class="event-actions">
-      <button class="done-check ev-done-btn" data-ev-id="${escHtml(ev.id)}" data-orig="${escHtml(originalKey)}" data-dk="${escHtml(dk)}" title="${done?'Marquer non-fait':'Marquer fait'}">
-        ${done ? '✅' : '⭕'}
+    <div class="event-actions" style="flex-direction:column;gap:6px;align-items:center">
+      <button class="ev-done-btn" data-ev-id="${escHtml(ev.id)}" data-orig="${escHtml(originalKey)}" data-dk="${escHtml(dk)}"
+        title="${done?'Marquer non-fait':'Marquer fait'}"
+        style="width:34px;height:34px;border-radius:50%;border:2.5px solid ${done?'var(--green)':'var(--border)'};background:${done?'var(--green)':'none'};font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s">
+        ${done ? '✓' : ''}
       </button>
-      ${ev.location ? `<button class="ev-map-btn" data-loc="${escHtml(ev.location)}" title="Ouvrir dans Maps">📍</button>` : ''}
-      <button class="ev-share-btn" data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(originalKey)}" data-ev-dk="${escHtml(dk)}" title="Partager" style="font-size:16px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;color:var(--text2)">🔗</button>
+      ${ev.location ? `<button class="ev-map-btn" data-loc="${escHtml(ev.location)}" title="Ouvrir dans Plans" style="width:30px;height:30px;border-radius:8px;background:rgba(0,122,255,0.1);border:none;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#007AFF">📍</button>` : '<div style="width:30px;height:30px"></div>'}
     </div>
   </div>`;
 }
@@ -1256,13 +1300,17 @@ function renderEventBlock(ev, dk, originalKey) {
 function renderTodoItem(todo, dk) {
   const idx = (S.todos[dk]||[]).findIndex(t=>t.id===todo.id);
   const total = (S.todos[dk]||[]).length;
-  return `<div class="todo-item" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}">
+  const prio = (typeof PRIO !== 'undefined' && PRIO[todo.priority]) ? PRIO[todo.priority] : null;
+  const prioBadge = prio && !todo.done ? `<span style="font-size:9px;background:${prio.bg};color:${prio.color};border-radius:8px;padding:1px 6px;font-weight:700;margin-left:4px;vertical-align:middle">${prio.label}</span>` : '';
+  const borderColor = (prio && !todo.done) ? prio.color : 'transparent';
+  return `<div class="todo-item" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="border-left:3px solid ${borderColor};padding-left:${prio?'8px':'0'}">
     <div class="todo-check${todo.done?' done':''}" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}"></div>
-    <span class="todo-text${todo.done?' done':''}"></span>
-    <button class="todo-edit-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:14px;color:var(--text2);width:30px;height:30px;display:flex;align-items:center;justify-content:center" title="Modifier">✏️</button>
-    <button class="todo-up-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:14px;color:var(--text3);width:26px;height:26px;display:flex;align-items:center;justify-content:center" ${idx===0?'disabled style="opacity:0.3"':''} title="Monter">↑</button>
-    <button class="todo-down-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:14px;color:var(--text3);width:26px;height:26px;display:flex;align-items:center;justify-content:center" ${idx===total-1?'disabled style="opacity:0.3"':''} title="Descendre">↓</button>
-    <button class="todo-del-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:16px;color:var(--text3)">🗑</button>
+    <span class="todo-text${todo.done?' done':''}"></span>${prioBadge}
+    <div style="display:flex;gap:2px;margin-left:auto">
+      <button class="todo-up-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:13px;color:var(--text3);width:26px;height:26px;display:flex;align-items:center;justify-content:center" ${idx===0?'disabled':''} title="Monter">↑</button>
+      <button class="todo-down-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:13px;color:var(--text3);width:26px;height:26px;display:flex;align-items:center;justify-content:center" ${idx===total-1?'disabled':''} title="Descendre">↓</button>
+      <button class="todo-del-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:15px;color:var(--text3);width:28px;height:28px;display:flex;align-items:center;justify-content:center">🗑</button>
+    </div>
   </div>`;
 }
 
@@ -1315,41 +1363,20 @@ function attachEventHandlers(container) {
 
   // Event block tap → edit
   container.querySelectorAll('.event-block').forEach(el => {
-    let _pressTimer = null;
-    let _pressing = false;
-
-    el.addEventListener('touchstart', e => {
-      if (e.target.closest('.event-actions')) return;
-      _pressing = false;
-      _pressTimer = setTimeout(() => {
-        _pressing = true;
-        navigator.vibrate && navigator.vibrate([50,30,50]);
-        toggleDone(el.dataset.evId, el.dataset.evDate, el.dataset.evDk);
-      }, 600);
-    }, { passive: true });
-
-    el.addEventListener('touchmove', () => {
-      clearTimeout(_pressTimer); _pressTimer = null;
-    }, { passive: true });
-
-    el.addEventListener('touchend', e => {
-      if (_pressTimer) { clearTimeout(_pressTimer); _pressTimer = null; }
-      // If long press fired, don't open modal
-      if (_pressing) { _pressing = false; return; }
-    }, { passive: true });
-
     el.addEventListener('click', e => {
-      if (_pressing) return;
       if (e.target.closest('.event-actions')) return;
       openEventModal(el.dataset.evDate, el.dataset.evId);
     });
   });
 
-  // Done button
+  // Done button — round circle on right
   container.querySelectorAll('.ev-done-btn').forEach(btn => {
     btn.addEventListener('click', async e => {
       e.stopPropagation();
       await toggleDone(btn.dataset.evId, btn.dataset.orig, btn.dataset.dk);
+      const rect = btn.getBoundingClientRect();
+      launchConfetti(rect.left + rect.width/2, rect.top + rect.height/2);
+      haptic([50,30,50]);
     });
   });
 
@@ -2106,12 +2133,31 @@ document.getElementById('todo-modal').addEventListener('click', e => {
 document.getElementById('todo-save-btn').addEventListener('click', async () => {
   const text = document.getElementById('todo-text-input').value.trim();
   if (!text) { toast('⚠️ Texte requis'); return; }
+  const selChip = document.querySelector('.todo-prio-chip.selected');
+  const priority = selChip?.dataset.prio || 'medium';
   ensureTodos(S.date);
-  S.todos[S.date].push({ id: uid(), text, done: false, date: S.date });
+  S.todos[S.date].push({ id: uid(), text, done: false, date: S.date, priority });
   closeTodoModal();
   await saveData();
   render();
   toast('✅ Tâche ajoutée');
+});
+
+// Priority chip selection in todo modal
+document.getElementById('todo-prio-chips')?.querySelectorAll('.todo-prio-chip').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.todo-prio-chip').forEach(bb => {
+      bb.classList.remove('selected');
+      bb.style.transform = '';
+      const pr = bb.dataset.prio;
+      const bgs = {high:'rgba(255,59,48,0.1)',medium:'rgba(255,149,0,0.1)',low:'rgba(142,142,147,0.1)'};
+      bb.style.background = bgs[pr]||'';
+    });
+    b.classList.add('selected');
+    b.style.transform = 'scale(1.05)';
+    const bgs2 = {high:'rgba(255,59,48,0.2)',medium:'rgba(255,149,0,0.2)',low:'rgba(142,142,147,0.2)'};
+    b.style.background = bgs2[b.dataset.prio]||'';
+  });
 });
 document.getElementById('todo-text-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('todo-save-btn').click();
