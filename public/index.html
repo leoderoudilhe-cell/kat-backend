@@ -2287,14 +2287,20 @@ document.getElementById('btn-next').addEventListener('click', () => shiftDate(1)
 
 // Swipe left/right on content
 let _swipeX = null;
+let _swipeY = null;
 const content = document.getElementById('content');
-content.addEventListener('touchstart', e => { _swipeX = e.touches[0].clientX; }, { passive: true });
+content.addEventListener('touchstart', e => { _swipeX = e.touches[0].clientX; _swipeY = e.touches[0].clientY; }, { passive: true });
 content.addEventListener('touchend', e => {
   if (_swipeX === null) return;
-  if (S.tab !== 'calendar' && S.tab !== 'todos') { _swipeX = null; return; }
+  // Journal tab: swipe navigates days too
+  if (S.tab !== 'calendar' && S.tab !== 'todos' && S.tab !== 'journal') { _swipeX = null; return; }
   const dx = e.changedTouches[0].clientX - _swipeX;
-  if (Math.abs(dx) > 60) shiftDate(dx < 0 ? 1 : -1);
-  _swipeX = null;
+  const dy = e.changedTouches[0].clientY - (_swipeY || 0);
+  // Seuil augmenté à 100px + ratio horizontal/vertical pour éviter les swipes accidentels
+  if (Math.abs(dx) > 100 && Math.abs(dx) > Math.abs(dy) * 1.8) {
+    shiftDate(dx < 0 ? 1 : -1);
+  }
+  _swipeX = null; _swipeY = null;
 });
 
 // ═══ SETTINGS ═══
