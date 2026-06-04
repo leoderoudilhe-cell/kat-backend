@@ -5,8 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="KAT">
 <meta name="theme-color" content="#8B5CF6">
 <title>KAT 🐱</title>
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.json">
 <style>
 /* ═══ CSS VARIABLES & RESET ═══ */
 :root {
@@ -1394,6 +1398,20 @@ function renderJournal(container) {
   const currentMood = entry.mood;
 
   let html = '<div style="padding:12px;display:flex;flex-direction:column;gap:12px">';
+
+  // ── Bannière anniversaire si détecté ce jour ──
+  const birthdayEvs = eventsForDay(S.date).filter(({ev}) => {
+    const t = (ev.title||'').toLowerCase();
+    return t.includes('anniversaire') || t.includes('anniv') || t.includes('birthday') || t.includes('bday') || t.includes('fête de');
+  });
+  if (birthdayEvs.length) {
+    html += `<div style="padding:14px 16px;border-radius:14px;background:linear-gradient(135deg,#FFF0F6,#F3E8FF);border:1.5px solid #FECDD3;text-align:center">
+      <div style="font-size:28px;margin-bottom:6px">🎂</div>
+      <div style="font-weight:700;font-size:16px;color:#9D174D" class="bday-banner-title"></div>
+      <div style="font-size:13px;color:#BE185D;margin-top:4px">N'oublie pas de lui souhaiter ! 🎉</div>
+    </div>`;
+  }
+
   html += '<div class="card"><div class="section">';
   html += '<div class="section-title">Humeur du jour</div>';
   html += '<div class="mood-row">';
@@ -1421,6 +1439,12 @@ function renderJournal(container) {
   }
   html += '</div></div></div></div>';
   container.innerHTML = html;
+
+  // Set birthday banner text safely
+  const bdayBanner = container.querySelector('.bday-banner-title');
+  if (bdayBanner && birthdayEvs.length) {
+    bdayBanner.textContent = birthdayEvs.map(({ev}) => ev.title).join(' & ');
+  }
 
   // Variable locale pour mood sélectionné (pas encore sauvegardé)
   let _selectedMood = entry.mood || null;
@@ -2183,36 +2207,90 @@ async function showBriefing() {
   if (!todayTodos.length) html += '<p style="color:var(--text2);font-size:14px">Aucune tâche 🎈</p>';
   html += '</div>';
 
-  // Wikipedia fact
-  try {
-    const wrsp = await fetch('https://fr.wikipedia.org/api/rest_v1/page/random/summary', { signal: AbortSignal.timeout(4000) });
-    if (wrsp.ok) {
-      const wk = await wrsp.json();
-      html += `<div style="padding:12px;background:var(--bg);border-radius:10px">
-        <div class="section-title">🎓 Le savais-tu ?</div>
-        <div style="font-size:13px;color:var(--text2);line-height:1.5"></div>
-      </div>`;
-    }
-  } catch(e) { /* skip */ }
+  // ── Anniversaires détectés dans les events du jour ──
+  const birthdays = todayEvs.filter(({ev}) => {
+    const t = (ev.title||'').toLowerCase();
+    return t.includes('anniversaire') || t.includes('anniv') || t.includes('birthday') || t.includes('fête de') || t.includes('bday');
+  });
+  if (birthdays.length) {
+    html += `<div style="margin-bottom:10px;padding:12px;background:linear-gradient(135deg,#FFF0F6,#F3E8FF);border-radius:10px;border:1px solid #FECDD3">
+      <div style="font-size:20px;margin-bottom:4px">🎂 Anniversaire aujourd'hui !</div>`;
+    birthdays.forEach(({ev}) => {
+      html += `<div class="bday-name" style="font-weight:700;font-size:16px"></div>`;
+    });
+    html += `<div style="font-size:12px;color:#9D174D;margin-top:4px">N'oublie pas de souhaiter ! 🎉</div></div>`;
+  }
 
   card.innerHTML = html;
 
-  // Set text content safely
-  const evSpans = card.querySelectorAll('[style*="gap:8px"] span');
+  // Set text content safely (XSS protection)
+  const evSpans = card.querySelectorAll('[style*="gap:8px"] span:first-of-type');
   todayEvs.forEach(({ev}, i) => { if (evSpans[i]) evSpans[i].textContent = ev.title; });
 
   const todoSpans = card.querySelectorAll('[style*="margin-bottom:4px"] span');
   todayTodos.slice(0,5).forEach((t,i) => { if (todoSpans[i]) todoSpans[i].textContent = t.text; });
 
-  const wkDiv = card.querySelector('[style*="line-height:1.5"]');
-  if (wkDiv) {
-    try {
-      const wrsp2 = await fetch('https://fr.wikipedia.org/api/rest_v1/page/random/summary', { signal: AbortSignal.timeout(4000) });
-      if (wrsp2.ok) {
-        const wk2 = await wrsp2.json();
-        wkDiv.textContent = (wk2.extract||'').slice(0,200) + '…';
+  const bdayNames = card.querySelectorAll('.bday-name');
+  birthdays.forEach(({ev}, i) => { if (bdayNames[i]) bdayNames[i].textContent = ev.title; });
+
+  // ── Culture générale : Wikipedia "ce jour dans l'histoire" ──
+  try {
+    const d = new Date();
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const dd = String(d.getDate()).padStart(2,'0');
+    const resp = await fetch(
+      `https://fr.wikipedia.org/api/rest_v1/feed/onthisday/events/${mm}/${dd}`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (resp.ok) {
+      const data = await resp.json();
+      const events = (data.events || []).filter(e => e.text && e.year);
+      // Pick a random event from the first 20
+      const pool = events.slice(0, 20);
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      if (pick) {
+        const factDiv = document.createElement('div');
+        factDiv.style.cssText = 'padding:12px;background:var(--bg);border-radius:10px;margin-top:4px';
+        const titleEl = document.createElement('div');
+        titleEl.className = 'section-title';
+        titleEl.textContent = '🎓 Culture générale — Ce jour dans l\'histoire';
+        const yearEl = document.createElement('div');
+        yearEl.style.cssText = 'font-size:11px;color:var(--kat);font-weight:700;margin:4px 0 2px';
+        yearEl.textContent = `En ${pick.year}`;
+        const textEl = document.createElement('div');
+        textEl.style.cssText = 'font-size:13px;color:var(--text2);line-height:1.6';
+        textEl.textContent = pick.text;
+        factDiv.appendChild(titleEl);
+        factDiv.appendChild(yearEl);
+        factDiv.appendChild(textEl);
+        card.appendChild(factDiv);
       }
-    } catch(e) {}
+    }
+  } catch(e) {
+    // Fallback : faits de culture générale
+    const fallbacks = [
+      'La Tour Eiffel a été construite en seulement 2 ans, 2 mois et 5 jours (1887-1889).',
+      'Mozart a composé sa première symphonie à l\'âge de 8 ans.',
+      'La Joconde de Léonard de Vinci ne possède pas de sourcils — c\'était la mode florentine du XVe siècle.',
+      'Shakespeare a inventé plus de 1 700 mots qui font partie de l\'anglais moderne.',
+      'Le Colisée de Rome pouvait accueillir entre 50 000 et 80 000 spectateurs.',
+      'Cléopâtre vivait chronologiquement plus près de l\'iPhone que de la construction des pyramides.',
+      'La bibliothèque d\'Alexandrie contenait entre 400 000 et 700 000 rouleaux de parchemin.',
+      'Van Gogh a peint plus de 900 tableaux en seulement 10 ans de carrière artistique.',
+      'Le Château de Versailles fut à l\'origine un simple pavillon de chasse.',
+      'Louis XIV a régné 72 ans — le plus long règne de l\'histoire européenne.',
+    ];
+    const factDiv = document.createElement('div');
+    factDiv.style.cssText = 'padding:12px;background:var(--bg);border-radius:10px;margin-top:4px';
+    const titleEl = document.createElement('div');
+    titleEl.className = 'section-title';
+    titleEl.textContent = '🎓 Culture générale';
+    const textEl = document.createElement('div');
+    textEl.style.cssText = 'font-size:13px;color:var(--text2);line-height:1.6';
+    textEl.textContent = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+    factDiv.appendChild(titleEl);
+    factDiv.appendChild(textEl);
+    card.appendChild(factDiv);
   }
 }
 function closeBriefing() { document.getElementById('briefing-overlay').classList.remove('open'); }

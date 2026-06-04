@@ -42,6 +42,51 @@ app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── Cat head SVG icon ──
+const CAT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="22" fill="#8B5CF6"/>
+  <polygon points="18,42 12,16 36,34" fill="#A78BFA"/>
+  <polygon points="82,42 88,16 64,34" fill="#A78BFA"/>
+  <polygon points="20,40 15,20 34,34" fill="#DDD6FE"/>
+  <polygon points="80,40 85,20 66,34" fill="#DDD6FE"/>
+  <circle cx="50" cy="60" r="30" fill="white"/>
+  <ellipse cx="38" cy="54" rx="5.5" ry="6.5" fill="#1a0533"/>
+  <ellipse cx="62" cy="54" rx="5.5" ry="6.5" fill="#1a0533"/>
+  <circle cx="40" cy="52" r="1.8" fill="white"/>
+  <circle cx="64" cy="52" r="1.8" fill="white"/>
+  <ellipse cx="50" cy="65" rx="2.5" ry="2" fill="#F9A8D4"/>
+  <path d="M46 69 Q50 73 54 69" stroke="#E9D5FF" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <line x1="14" y1="62" x2="36" y2="63" stroke="#DDD6FE" stroke-width="1.2" opacity="0.8"/>
+  <line x1="14" y1="67" x2="36" y2="66" stroke="#DDD6FE" stroke-width="1.2" opacity="0.8"/>
+  <line x1="64" y1="63" x2="86" y2="62" stroke="#DDD6FE" stroke-width="1.2" opacity="0.8"/>
+  <line x1="64" y1="66" x2="86" y2="67" stroke="#DDD6FE" stroke-width="1.2" opacity="0.8"/>
+</svg>`;
+
+app.get('/icon.svg', (_, res) => {
+  res.set('Content-Type', 'image/svg+xml');
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.send(CAT_SVG);
+});
+
+app.get('/manifest.json', (_, res) => {
+  const iconDataUri = 'data:image/svg+xml,' + encodeURIComponent(CAT_SVG);
+  res.json({
+    name: 'KAT',
+    short_name: 'KAT',
+    description: 'Agenda personnel de KAT 🐱',
+    start_url: '/',
+    display: 'standalone',
+    background_color: '#8B5CF6',
+    theme_color: '#8B5CF6',
+    orientation: 'portrait',
+    icons: [
+      { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
+      { src: iconDataUri, sizes: '192x192', type: 'image/svg+xml' },
+      { src: iconDataUri, sizes: '512x512', type: 'image/svg+xml' }
+    ]
+  });
+});
+
 app.get('/api/ping', (_, res) => res.json({ ok: true, ts: Date.now() }));
 
 app.get('/api/data', (_, res) => {
