@@ -831,6 +831,7 @@ const S = {
   cats: [],
   settings: {},
   courses: { items: [], suggestions: [] },
+  ptodos: [],   // persistent todos (no date, stay forever)
 };
 let _undoStack = [];
 let _undoTimer = null;
@@ -851,6 +852,7 @@ async function loadAll() {
     S.cats     = (await idbGet('kv','cats'))      || [];
     S.settings = (await idbGet('kv','settings'))  || {};
     S.courses  = (await idbGet('kv','courses'))   || { items: [], suggestions: [] };
+    S.ptodos   = (await idbGet('kv','ptodos'))    || [];
   } catch(e) {
     console.error('IDB load error:', e);
     toast('⚠️ Erreur chargement données');
@@ -864,6 +866,7 @@ async function saveData() {
     await idbSet('kv','cats',    S.cats);
     await idbSet('kv','settings',S.settings);
     await idbSet('kv','courses', S.courses);
+    await idbSet('kv','ptodos',  S.ptodos);
     scheduleSyncDebounced();
   } catch(e) {
     console.error('IDB save error:', e);
@@ -1226,7 +1229,7 @@ function renderEventBlock(ev, dk, originalKey) {
     else if (diff === 0) countdown = `<span class="countdown-badge">Maintenant !</span>`;
   }
   const recBadge = ev.recurrence && ev.recurrence !== 'none' ? `<span class="event-badge">🔁</span>` : '';
-  const locBadge = ev.location ? `<button class="event-badge event-loc-btn" data-loc="${escHtml(ev.location)}" style="background:none;border:none;cursor:pointer;color:var(--kat);font-size:12px;padding:0;font-family:inherit;display:inline-flex;align-items:center;gap:3px;text-decoration:underline;text-underline-offset:2px;" title="Ouvrir dans Plans">📍 <span>${escHtml(ev.location)}</span></button>` : '';
+  const locBadge = ev.location ? `<button class="event-loc-btn" data-loc="${escHtml(ev.location)}" onclick="event.stopPropagation();openInMaps(this.dataset.loc)" style="display:flex;align-items:center;gap:5px;margin-top:6px;background:rgba(0,122,255,0.1);border:none;border-radius:8px;padding:5px 10px;color:#007AFF;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;width:100%;text-align:left;" title="Ouvrir dans Plans">📍 <span style="text-decoration:underline">${escHtml(ev.location)}</span></button>` : '';
 
   return `<div class="event-block${done?' done':''}" data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(originalKey)}" data-ev-dk="${escHtml(dk)}" data-ev-time="${escHtml(ev.time||'')}">
     <div class="event-cat-bar" style="background:${escHtml(ev.color || cat.color)}"></div>
@@ -1236,8 +1239,9 @@ function renderEventBlock(ev, dk, originalKey) {
         ${ev.time ? `<span>${escHtml(ev.time)}</span>` : ''}
         ${ev.duration ? `<span>${escHtml(String(ev.duration))} min</span>` : ''}
         ${cat.emoji} ${escHtml(cat.name)}
-        ${recBadge}${locBadge}
+        ${recBadge}
       </div>
+      ${locBadge}
     </div>
     <div class="event-actions">
       <button class="done-check ev-done-btn" data-ev-id="${escHtml(ev.id)}" data-orig="${escHtml(originalKey)}" data-dk="${escHtml(dk)}" title="${done?'Marquer non-fait':'Marquer fait'}">
@@ -1544,28 +1548,152 @@ function renderMonth(container) {
 }
 
 // ═══ TODOS TAB ═══
+// Priority config
+const PRIO = {
+  high:   { label: '🔴 Haute',   color: '#FF3B30', bg: 'rgba(255,59,48,0.1)'  },
+  medium: { label: '🟡 Moyenne', color: '#FF9500', bg: 'rgba(255,149,0,0.1)'  },
+  low:    { label: '⚪ Basse',   color: '#8E8E93', bg: 'rgba(142,142,147,0.1)' },
+};
+
 function renderTodos(container) {
   const todos = getTodos(S.date);
   const doneTodos = todos.filter(t=>t.done).length;
   const pct = todos.length ? Math.round(doneTodos/todos.length*100) : 0;
+  const d = parseDate(S.date);
+  const dateLabel = d.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
 
-  let html = '<div style="padding:12px"><div class="card"><div class="section">';
-  html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-    <div class="section-title" style="margin-bottom:0">Tâches du jour</div>
-    ${todos.length ? `<div style="display:flex;align-items:center;gap:6px">
-      <span style="font-size:13px;color:var(--text2)">${doneTodos}/${todos.length} — ${pct}%</span>
-      ${renderProgressRing(pct)}
-    </div>` : ''}
-  </div>`;
+  let html = '<div style="padding:12px;display:flex;flex-direction:column;gap:12px">';
+
+  // ── Tâches du JOUR avec navigation ──
+  html += `<div class="card"><div class="section">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <button onclick="shiftDate(-1)" style="background:none;border:none;font-size:22px;color:var(--kat);cursor:pointer;width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:50%">‹</button>
+      <div style="text-align:center">
+        <div class="section-title" style="margin-bottom:0">📅 Tâches du jour</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">${escHtml(dateLabel)}</div>
+        ${todos.length ? `<div style="font-size:12px;color:var(--text2);margin-top:2px">${doneTodos}/${todos.length} — ${pct}%</div>` : ''}
+      </div>
+      <button onclick="shiftDate(1)" style="background:none;border:none;font-size:22px;color:var(--kat);cursor:pointer;width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:50%">›</button>
+    </div>`;
   if (!todos.length) {
-    html += '<div class="empty-state"><div class="emoji">🐱</div><p>Aucune tâche pour aujourd\'hui</p></div>';
+    html += '<div class="empty-state"><div class="emoji">🐱</div><p>Aucune tâche pour ce jour</p></div>';
   } else {
     for (const todo of todos) html += renderTodoItem(todo, S.date);
   }
+  html += '</div></div>';
+
+  // ── Tâches PERSISTANTES avec priorité ──
+  const ptodos = [...S.ptodos].sort((a,b)=>({high:0,medium:1,low:2,'':3}[a.priority||'']||3)-({high:0,medium:1,low:2,'':3}[b.priority||'']||3));
+
+  html += `<div class="card"><div class="section">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div>
+        <div class="section-title" style="margin-bottom:0">📌 Tâches persistantes</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">Restent jusqu'à suppression</div>
+      </div>
+      <button onclick="openAddPtodoModal()" style="background:var(--kat);color:white;border:none;border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">＋</button>
+    </div>`;
+
+  if (!ptodos.length) {
+    html += '<div class="empty-state" style="padding:12px 0"><div class="emoji">📌</div><p>Aucune tâche permanente</p></div>';
+  } else {
+    for (const pt of ptodos) {
+      const prio = PRIO[pt.priority||'low']||PRIO.low;
+      html += `<div class="todo-item ptodo-item" data-ptid="${escHtml(pt.id)}" style="border-left:3px solid ${prio.color};padding-left:10px;position:relative">
+        <div class="todo-check${pt.done?' done':''}" data-ptid="${escHtml(pt.id)}"></div>
+        <div style="flex:1;min-width:0">
+          <span class="todo-text${pt.done?' done':''} ptodo-text-span"></span>
+          <span style="font-size:10px;background:${prio.bg};color:${prio.color};border-radius:10px;padding:1px 7px;margin-left:6px;font-weight:600;vertical-align:middle">${prio.label}</span>
+        </div>
+        <button class="ptodo-del-btn" data-ptid="${escHtml(pt.id)}" style="font-size:16px;color:var(--text3);background:none;border:none;cursor:pointer;padding:0 6px;min-height:44px">🗑</button>
+      </div>`;
+    }
+  }
   html += '</div></div></div>';
+
   container.innerHTML = html;
+
+  // Fill ptodo text safely
+  container.querySelectorAll('.ptodo-text-span').forEach(span => {
+    const ptid = span.closest('.ptodo-item')?.dataset.ptid;
+    const pt = S.ptodos.find(p=>p.id===ptid);
+    if (pt) span.textContent = pt.text;
+  });
+
   attachEventHandlers(container);
+
+  container.querySelectorAll('.todo-check[data-ptid]').forEach(el => {
+    el.addEventListener('click', async () => {
+      const pt = S.ptodos.find(p=>p.id===el.dataset.ptid);
+      if (pt) { pt.done=!pt.done; haptic(30); await saveData(); render(); }
+    });
+  });
+  container.querySelectorAll('.ptodo-del-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const idx = S.ptodos.findIndex(p=>p.id===btn.dataset.ptid);
+      if (idx!==-1) {
+        const [removed] = S.ptodos.splice(idx,1);
+        pushUndo('ptodo', {item:removed});
+        await saveData(); render();
+      }
+    });
+  });
 }
+
+function openAddPtodoModal() {
+  document.getElementById('ptodo-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'ptodo-modal';
+  modal.className = 'modal-overlay open';
+  modal.innerHTML = `
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <button class="btn-ghost" onclick="document.getElementById('ptodo-modal').remove()">Annuler</button>
+        <span style="font-weight:700;font-size:17px">Tâche persistante</span>
+        <button class="btn-ghost" style="color:var(--kat);font-weight:700" onclick="savePtodo()">Ajouter</button>
+      </div>
+      <div style="padding:0 14px 20px;display:flex;flex-direction:column;gap:12px">
+        <div class="card"><div class="section">
+          <input id="ptodo-text" type="text" placeholder="Nom de la tâche..."
+            autocomplete="off" autocorrect="off"
+            style="width:100%;border:none;background:none;font-size:17px;font-family:inherit;color:var(--text);outline:none;padding:6px 0">
+        </div></div>
+        <div class="section-title">Priorité</div>
+        <div style="display:flex;gap:8px">
+          ${Object.entries(PRIO).map(([k,v])=>`<button class="prio-chip" data-prio="${k}" style="flex:1;border:2px solid ${v.color};background:${v.bg};color:${v.color};border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">${v.label}</button>`).join('')}
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  let selPrio = 'medium';
+  const chips = modal.querySelectorAll('.prio-chip');
+  chips.forEach(b => {
+    if (b.dataset.prio===selPrio) b.style.transform='scale(1.05)';
+    b.addEventListener('click', ()=>{
+      chips.forEach(bb=>bb.style.transform='');
+      b.style.transform='scale(1.05)';
+      selPrio=b.dataset.prio;
+    });
+  });
+  modal._getSelPrio = () => selPrio;
+  setTimeout(()=>document.getElementById('ptodo-text')?.focus(),300);
+  modal.addEventListener('click', e=>{ if(e.target===modal) modal.remove(); });
+  document.getElementById('ptodo-text').addEventListener('keydown', e=>{ if(e.key==='Enter') savePtodo(); });
+}
+
+async function savePtodo() {
+  const text = document.getElementById('ptodo-text')?.value.trim();
+  if (!text) { toast('⚠️ Écris une tâche'); return; }
+  const modal = document.getElementById('ptodo-modal');
+  const priority = modal?._getSelPrio?.() || 'medium';
+  S.ptodos.push({id:uid(), text, priority, done:false, createdAt:new Date().toISOString()});
+  modal?.remove();
+  await saveData();
+  render();
+  toast('📌 Tâche ajoutée');
+}
+
 
 // ═══ JOURNAL TAB ═══
 function renderJournal(container) {
@@ -2035,7 +2163,7 @@ const content = document.getElementById('content');
 content.addEventListener('touchstart', e => { _swipeX = e.touches[0].clientX; }, { passive: true });
 content.addEventListener('touchend', e => {
   if (_swipeX === null) return;
-  if (S.tab !== 'calendar') { _swipeX = null; return; }
+  if (S.tab !== 'calendar' && S.tab !== 'todos') { _swipeX = null; return; }
   const dx = e.changedTouches[0].clientX - _swipeX;
   if (Math.abs(dx) > 60) shiftDate(dx < 0 ? 1 : -1);
   _swipeX = null;
