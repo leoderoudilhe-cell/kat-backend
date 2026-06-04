@@ -61,13 +61,47 @@ input, textarea { font-family: inherit; }
 }
 .nav-btn {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 4px 12px; border-radius: 10px; color: var(--text2);
+  padding: 4px 8px; border-radius: 10px; color: var(--text2);
   font-size: 10px; transition: color .2s;
-  min-width: 56px;
+  min-width: 48px;
 }
 .nav-btn.active { color: var(--kat); }
 .nav-btn svg, .nav-btn span.icon { font-size: 22px; }
 
+/* ═══ COURSES ═══ */
+.courses-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:8px; }
+.courses-title { font-size:22px; font-weight:800; }
+.courses-count { font-size:13px; color:var(--text2); margin-top:2px; }
+.courses-header-actions { display:flex; gap:8px; flex-shrink:0; }
+.courses-clear-btn { font-size:13px; color:#FF3B30; background:transparent; border:1px solid #FF3B30; border-radius:8px; padding:6px 12px; }
+.courses-uncheck-btn { font-size:13px; color:var(--kat); background:transparent; border:1px solid var(--kat); border-radius:8px; padding:6px 12px; }
+.course-cat-section { margin-bottom:16px; background:var(--card); border-radius:var(--radius); overflow:hidden; }
+.course-cat-header { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--border); }
+.course-cat-icon { font-size:20px; }
+.course-cat-name { font-weight:700; font-size:14px; flex:1; }
+.course-cat-count { font-size:12px; color:var(--text2); background:var(--border); border-radius:12px; padding:2px 8px; }
+.course-item { min-height:48px; display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid var(--border); transition:opacity .2s; }
+.course-item:last-child { border-bottom:none; }
+.course-item.checked { opacity:0.45; }
+.course-check { font-size:22px; flex-shrink:0; cursor:pointer; user-select:none; }
+.course-item-body { flex:1; min-width:0; }
+.course-item-name { font-size:15px; }
+.course-item-name.checked { text-decoration:line-through; }
+.course-item-qty { font-size:12px; color:var(--text2); margin-top:2px; }
+.courses-empty { text-align:center; padding:60px 20px 20px; }
+.courses-empty-icon { font-size:56px; margin-bottom:12px; }
+.courses-empty-title { font-size:18px; font-weight:700; margin-bottom:8px; }
+.courses-empty-sub { font-size:14px; color:var(--text2); margin-bottom:24px; }
+.courses-suggestions { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+.suggestion-chip { background:var(--card); border:1px solid var(--border); border-radius:20px; padding:8px 16px; font-size:14px; cursor:pointer; transition:background .15s; }
+.suggestion-chip:active { background:var(--border); }
+.course-cat-chip { border:1px solid var(--border); border-radius:10px; padding:10px; text-align:center; cursor:pointer; font-size:12px; transition:all .15s; background:var(--card); }
+.course-cat-chip.selected { border-color:var(--kat); background:color-mix(in srgb, var(--kat) 15%, transparent); color:var(--kat); font-weight:700; }
+.course-cat-chip .chip-icon { font-size:22px; display:block; margin-bottom:4px; }
+.course-autocomplete { background:var(--card); border-radius:10px; overflow:hidden; margin-top:4px; border:1px solid var(--border); }
+.course-autocomplete-item { padding:12px 14px; font-size:14px; cursor:pointer; border-bottom:1px solid var(--border); }
+.course-autocomplete-item:last-child { border-bottom:none; }
+.course-autocomplete-item:active { background:var(--border); }
 /* ═══ HEADER ═══ */
 #logo { display: flex; align-items: center; gap: 8px; }
 #logo svg { width: 32px; height: 32px; }
@@ -465,6 +499,10 @@ input, textarea { font-family: inherit; }
       <span class="icon">📊</span>
       <span>Stats</span>
     </button>
+    <button class="nav-btn" data-tab="courses" onclick="setTab('courses')">
+      <span class="icon">🛒</span>
+      <span>Courses</span>
+    </button>
   </div>
 </div>
 
@@ -598,6 +636,31 @@ input, textarea { font-family: inherit; }
     <button class="btn-primary" id="todo-save-btn">Ajouter</button>
     <div style="text-align:center;margin-top:12px">
       <button class="btn-ghost" onclick="closeTodoModal()">Annuler</button>
+    </div>
+  </div>
+</div>
+
+<!-- Courses Modal -->
+<div class="modal-overlay" id="course-modal" role="dialog" aria-label="Ajouter un article">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <button class="btn-ghost" onclick="closeAddCourseModal()">✕</button>
+      <span class="modal-title" style="margin-bottom:0">Ajouter</span>
+      <button class="btn-primary" id="course-save-btn" style="padding:8px 18px;font-size:14px">OK</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nom de l'article</label>
+      <input class="form-input" id="course-name-input" type="text" placeholder="Ex : Tomates, Lait…" maxlength="80" autocomplete="off">
+      <div id="course-autocomplete-list"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Quantité (optionnel)</label>
+      <input class="form-input" id="course-qty-input" type="text" placeholder="Ex : 500g, 2, 1 bouteille" maxlength="40">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Catégorie</label>
+      <div id="course-cat-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:8px"></div>
     </div>
   </div>
 </div>
@@ -765,6 +828,7 @@ const S = {
   journal: {},  // { dateKey: { mood, text, date } }
   cats: [],
   settings: {},
+  courses: { items: [], suggestions: [] },
 };
 let _undoStack = [];
 let _undoTimer = null;
@@ -784,6 +848,7 @@ async function loadAll() {
     S.journal  = (await idbGet('kv','journal'))   || {};
     S.cats     = (await idbGet('kv','cats'))      || [];
     S.settings = (await idbGet('kv','settings'))  || {};
+    S.courses  = (await idbGet('kv','courses'))   || { items: [], suggestions: [] };
   } catch(e) {
     console.error('IDB load error:', e);
     toast('⚠️ Erreur chargement données');
@@ -796,6 +861,7 @@ async function saveData() {
     await idbSet('kv','journal', S.journal);
     await idbSet('kv','cats',    S.cats);
     await idbSet('kv','settings',S.settings);
+    await idbSet('kv','courses', S.courses);
     scheduleSyncDebounced();
   } catch(e) {
     console.error('IDB save error:', e);
@@ -988,6 +1054,11 @@ document.getElementById('undo-btn').onclick = async () => {
     ensureTodos(dk);
     S.todos[dk].push(todo);
     await saveData();
+  } else if (item.type === 'course') {
+    const { item: courseItem, idx } = item.data;
+    if (!S.courses.items) S.courses.items = [];
+    S.courses.items.splice(idx, 0, courseItem);
+    await saveData();
   }
   render();
 };
@@ -1016,6 +1087,10 @@ function render() {
     document.getElementById('view-tabs').style.display = 'none';
     document.getElementById('date-nav').style.display = 'none';
     renderStatsWithNav(content);
+  } else if (S.tab === 'courses') {
+    document.getElementById('view-tabs').style.display = 'none';
+    document.getElementById('date-nav').style.display = 'none';
+    renderCourses(content);
   }
   updateDateLabel();
   updateFab();
@@ -1043,6 +1118,10 @@ function updateFab() {
   const fab = document.getElementById('add-fab');
   if (S.tab === 'stats') { fab.style.display = 'none'; return; }
   fab.style.display = 'flex';
+}
+function setTab(tab) {
+  S.tab = tab;
+  render();
 }
 
 // ═══ DAY VIEW ═══
@@ -1878,6 +1957,7 @@ document.getElementById('todo-text-input').addEventListener('keydown', e => {
 
 // ═══ FAB ═══
 document.getElementById('add-fab').addEventListener('click', () => {
+  if (S.tab === 'courses') { openAddCourseModal(); return; }
   if (S.tab === 'todos' || S.tab === 'calendar' && S.view === 'day') {
     if (S.tab === 'todos') { openTodoModal(); return; }
     openEventModal(S.date);
@@ -3080,6 +3160,249 @@ async function autoSyncFromApple() {
 }
 
 boot();
+
+// ═══ COURSES ═══
+const COURSE_CATS = [
+  { id: 'fruits-legumes',    name: 'Fruits & Légumes',    icon: '🥦', color: '#34C759' },
+  { id: 'viandes',           name: 'Viandes & Poissons',  icon: '🥩', color: '#FF3B30' },
+  { id: 'produits-laitiers', name: 'Produits laitiers',   icon: '🧀', color: '#FFD60A' },
+  { id: 'boulangerie',       name: 'Boulangerie',         icon: '🥖', color: '#FF9500' },
+  { id: 'epicerie',          name: 'Épicerie & Conserves',icon: '🥫', color: '#8B5CF6' },
+  { id: 'boissons',          name: 'Boissons',            icon: '🥤', color: '#5AC8FA' },
+  { id: 'surgeles',          name: 'Surgelés',            icon: '❄️', color: '#007AFF' },
+  { id: 'hygiene',           name: 'Hygiène & Beauté',    icon: '🧴', color: '#FF2D55' },
+  { id: 'maison',            name: 'Maison & Entretien',  icon: '🧹', color: '#636366' },
+  { id: 'autres',            name: 'Autres',              icon: '📦', color: '#AEAEB2' },
+];
+
+const COURSE_KEYWORDS = {
+  'fruits-legumes': ['tomate','carotte','pomme','poire','banane','salade','courgette','poireau','oignon','ail','citron','orange','fraise','cerise','haricot','epinard','brocoli','chou','poivron','raisin','peche','abricot','kiwi','melon','pastèque','prune','figue','mangue','ananas','radis','concombre','navet','fenouil','asperge','artichaut','avocat','betterave','celereri','pomme de terre','patate'],
+  'viandes': ['poulet','boeuf','porc','agneau','veau','dinde','saumon','thon','crevette','cabillaud','sardine','jambon','lardons','merguez','chipolata','escalope','filet','steak','rôti','gigot'],
+  'produits-laitiers': ['lait','yaourt','fromage','beurre','crème','emmental','camembert','brie','mozzarella','feta','gruyère','parmesan','mascarpone','ricotta','cheddar','kefir'],
+  'boulangerie': ['pain','baguette','brioche','croissant','pain de mie','farine','levure'],
+  'epicerie': ['pâtes','riz','lentilles','fèves','spaghetti','tagliatelle','couscous','quinoa','boite','conserve','sauce','ketchup','moutarde','mayonnaise','huile','vinaigre','sel','poivre','sucre','miel','confiture','chocolat','biscuit','chips','céréales'],
+  'boissons': ['eau','jus','coca','soda','bière','vin','café','thé','sirop','limonade','bouteille'],
+  'surgeles': ['surgelé','glace','pizza','frites','nuggets'],
+  'hygiene': ['shampoing','savon','gel douche','dentifrice','déodorant','rasoir','coton','protège','serviette','brosse'],
+  'maison': ['lessive','liquide vaisselle','éponge','sac poubelle','papier toilette','papier essuie','nettoyant','produit'],
+};
+
+const DEFAULT_SUGGESTIONS = ['Lait','Oeufs','Pain','Eau','Beurre','Café','Pommes','Poulet','Yaourt','Pâtes','Riz','Tomates'];
+
+function detectCourseCategory(name) {
+  const lower = name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  for (const [catId, keywords] of Object.entries(COURSE_KEYWORDS)) {
+    if (keywords.some(k => lower.includes(k.normalize('NFD').replace(/[̀-ͯ]/g,'')))) return catId;
+  }
+  return 'autres';
+}
+
+function renderCourses(container) {
+  const items = S.courses.items || [];
+  const total = items.length;
+  const remaining = items.filter(i => !i.checked).length;
+  const hasChecked = items.some(i => i.checked);
+
+  let actionsHtml = '';
+  if (hasChecked) {
+    actionsHtml = `
+      <button class="courses-clear-btn" onclick="clearCheckedItems()">🗑 Effacer cochés</button>
+      <button class="courses-uncheck-btn" onclick="uncheckAll()">✓ Tout décocher</button>`;
+  }
+
+  let bodyHtml = '';
+  if (items.length === 0) {
+    const suggs = (S.courses.suggestions && S.courses.suggestions.length > 0)
+      ? S.courses.suggestions.slice(0,12)
+      : DEFAULT_SUGGESTIONS;
+    const chipHtml = suggs.map(s => `<button class="suggestion-chip" onclick="quickAddCourse(${JSON.stringify(escHtml(s))})">${escHtml(s)}</button>`).join('');
+    bodyHtml = `<div class="courses-empty">
+      <div class="courses-empty-icon">🛒</div>
+      <div class="courses-empty-title">Ta liste est vide</div>
+      <div class="courses-empty-sub">Appuie sur + pour ajouter des articles</div>
+      <div class="courses-suggestions">${chipHtml}</div>
+    </div>`;
+  } else {
+    // Grouper par catégorie
+    const bycat = {};
+    for (const item of items) {
+      const cat = item.category || 'autres';
+      if (!bycat[cat]) bycat[cat] = [];
+      bycat[cat].push(item);
+    }
+    // Trier : catégories avec non-cochés en premier
+    const catOrder = COURSE_CATS.map(c => c.id).filter(id => bycat[id]);
+    for (const catId of catOrder) {
+      const catDef = COURSE_CATS.find(c => c.id === catId);
+      if (!catDef) continue;
+      const catItems = bycat[catId];
+      const uncheckedFirst = [...catItems].sort((a,b) => (a.checked?1:0)-(b.checked?1:0));
+      const itemsHtml = uncheckedFirst.map(item => {
+        const checkedClass = item.checked ? ' checked' : '';
+        const checkIcon = item.checked ? '✅' : '⭕';
+        return `<div class="course-item${checkedClass}" data-id="${escHtml(item.id)}"
+          ontouchstart="startCoursePress('${escHtml(item.id)}')"
+          ontouchend="endCoursePress()"
+          ontouchcancel="endCoursePress()"
+          onmousedown="startCoursePress('${escHtml(item.id)}')"
+          onmouseup="endCoursePress()"
+          onmouseleave="endCoursePress()">
+          <span class="course-check" onclick="toggleCourseItem('${escHtml(item.id)}')">${checkIcon}</span>
+          <div class="course-item-body">
+            <div class="course-item-name${checkedClass}">${escHtml(item.name)}</div>
+            ${item.qty ? `<div class="course-item-qty">${escHtml(item.qty)}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+      bodyHtml += `<div class="course-cat-section">
+        <div class="course-cat-header" style="border-left:3px solid ${catDef.color}">
+          <span class="course-cat-icon">${catDef.icon}</span>
+          <span class="course-cat-name">${escHtml(catDef.name)}</span>
+          <span class="course-cat-count">${catItems.length}</span>
+        </div>
+        ${itemsHtml}
+      </div>`;
+    }
+  }
+
+  container.innerHTML = `
+    <div style="padding:16px">
+      <div class="courses-header">
+        <div>
+          <div class="courses-title">Ma liste</div>
+          <div class="courses-count">${total} article${total!==1?'s':''} · ${remaining} restant${remaining!==1?'s':''}</div>
+        </div>
+        <div class="courses-header-actions">${actionsHtml}</div>
+      </div>
+      ${bodyHtml}
+    </div>`;
+}
+
+let _coursePressTimer = null;
+let _coursePressId = null;
+function startCoursePress(id) {
+  _coursePressId = id;
+  _coursePressTimer = setTimeout(async () => {
+    _coursePressTimer = null;
+    await deleteCourseItem(id);
+  }, 600);
+}
+function endCoursePress() {
+  if (_coursePressTimer) { clearTimeout(_coursePressTimer); _coursePressTimer = null; }
+}
+
+async function addCourseItem(name, category, qty) {
+  if (!name.trim()) return;
+  const item = { id: uid(), name: name.trim(), category: category || detectCourseCategory(name), checked: false, qty: qty||'', addedAt: new Date().toISOString() };
+  if (!S.courses.items) S.courses.items = [];
+  S.courses.items.push(item);
+  // Ajouter aux suggestions si pas déjà présent
+  if (!S.courses.suggestions) S.courses.suggestions = [];
+  if (!S.courses.suggestions.map(s=>s.toLowerCase()).includes(name.trim().toLowerCase())) {
+    S.courses.suggestions.unshift(name.trim());
+    if (S.courses.suggestions.length > 50) S.courses.suggestions.pop();
+  }
+  await saveData();
+  render();
+}
+
+async function toggleCourseItem(id) {
+  const item = (S.courses.items||[]).find(i => i.id === id);
+  if (!item) return;
+  item.checked = !item.checked;
+  await saveData();
+  render();
+}
+
+async function deleteCourseItem(id) {
+  const idx = (S.courses.items||[]).findIndex(i => i.id === id);
+  if (idx === -1) return;
+  const [deleted] = S.courses.items.splice(idx, 1);
+  await saveData();
+  // Undo
+  const bar = document.getElementById('undo-bar');
+  const msg = document.getElementById('undo-msg');
+  msg.textContent = `🛒 "${deleted.name}" supprimé`;
+  bar.classList.add('show');
+  clearTimeout(_undoTimer);
+  _undoStack.push({ type: 'course', data: { item: deleted, idx } });
+  _undoTimer = setTimeout(() => { bar.classList.remove('show'); _undoStack = []; }, 5000);
+  render();
+}
+
+async function clearCheckedItems() {
+  S.courses.items = (S.courses.items||[]).filter(i => !i.checked);
+  await saveData();
+  render();
+  toast('🗑 Articles cochés supprimés');
+}
+
+async function uncheckAll() {
+  (S.courses.items||[]).forEach(i => i.checked = false);
+  await saveData();
+  render();
+  toast('✓ Liste décochée');
+}
+
+async function quickAddCourse(name) {
+  await addCourseItem(name, detectCourseCategory(name), '');
+  toast(`✅ ${name} ajouté`);
+}
+
+// Modal courses
+let _selectedCourseCat = null;
+function openAddCourseModal() {
+  _selectedCourseCat = null;
+  document.getElementById('course-name-input').value = '';
+  document.getElementById('course-qty-input').value = '';
+  document.getElementById('course-autocomplete-list').innerHTML = '';
+  // Render cat grid
+  const grid = document.getElementById('course-cat-grid');
+  grid.innerHTML = COURSE_CATS.map(c => `
+    <div class="course-cat-chip" data-catid="${c.id}" onclick="selectCourseCat('${c.id}')">
+      <span class="chip-icon">${c.icon}</span>
+      <span>${c.name.split(' ')[0]}</span>
+    </div>`).join('');
+  document.getElementById('course-modal').classList.add('open');
+  setTimeout(() => document.getElementById('course-name-input').focus(), 200);
+}
+function closeAddCourseModal() {
+  document.getElementById('course-modal').classList.remove('open');
+}
+function selectCourseCat(id) {
+  _selectedCourseCat = id;
+  document.querySelectorAll('.course-cat-chip').forEach(el => {
+    el.classList.toggle('selected', el.dataset.catid === id);
+  });
+}
+document.getElementById('course-name-input').addEventListener('input', function() {
+  const val = this.value.trim().toLowerCase();
+  // Auto-detect category
+  if (val && !_selectedCourseCat) {
+    const detected = detectCourseCategory(val);
+    selectCourseCat(detected);
+  }
+  // Autocomplete
+  const list = document.getElementById('course-autocomplete-list');
+  if (!val || val.length < 2) { list.innerHTML = ''; return; }
+  const matches = (S.courses.suggestions||[]).filter(s => s.toLowerCase().includes(val)).slice(0,4);
+  if (matches.length === 0) { list.innerHTML = ''; return; }
+  list.innerHTML = `<div class="course-autocomplete">${matches.map(m =>
+    `<div class="course-autocomplete-item" onclick="document.getElementById('course-name-input').value='${escHtml(m)}';document.getElementById('course-autocomplete-list').innerHTML='';selectCourseCat(detectCourseCategory('${escHtml(m)}'))">${escHtml(m)}</div>`
+  ).join('')}</div>`;
+});
+document.getElementById('course-name-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('course-save-btn').click();
+});
+document.getElementById('course-save-btn').addEventListener('click', async () => {
+  const name = document.getElementById('course-name-input').value.trim();
+  const qty = document.getElementById('course-qty-input').value.trim();
+  const cat = _selectedCourseCat || detectCourseCategory(name);
+  if (!name) { toast('⚠️ Donne un nom à l\'article'); return; }
+  closeAddCourseModal();
+  await addCourseItem(name, cat, qty);
+  toast(`✅ ${name} ajouté`);
+});
 
 // ═══ ICONE IOS PNG 180x180 ═══
 (function generateCatIcon() {
