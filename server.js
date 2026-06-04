@@ -170,14 +170,21 @@ function buildICS(events) {
     evs.forEach(ev => { if (ev.title) allEvs.push({dk, ev}); });
   }
 
-  // Placeholder so Apple Calendar accepts the subscription even when empty
+  // Placeholder — Apple Calendar requires DTEND > DTSTART
   if (allEvs.length === 0) {
+    const s = new Date();
+    s.setUTCMinutes(0, 0, 0);
+    const e = new Date(s.getTime() + 3600000); // +1 heure
+    const fmt = d => {
+      const p = x => String(x).padStart(2,'0');
+      return `${d.getUTCFullYear()}${p(d.getUTCMonth()+1)}${p(d.getUTCDate())}T${p(d.getUTCHours())}${p(d.getUTCMinutes())}00Z`;
+    };
     push('BEGIN:VEVENT');
-    push('UID:kat-init@kat');
+    push('UID:kat-agenda-placeholder@kat');
     push(`DTSTAMP:${nowStamp()}`);
-    push(`DTSTART:${nowStamp()}`);
-    push(`DTEND:${nowStamp()}`);
-    push('SUMMARY:KAT');
+    push(`DTSTART:${fmt(s)}`);
+    push(`DTEND:${fmt(e)}`);
+    push('SUMMARY:KAT Agenda');
     push('END:VEVENT');
   }
 
