@@ -479,6 +479,7 @@ input, textarea { font-family: inherit; }
       </svg>
       <span id="wordmark">KAT</span>
       <div id="sync-dot" title="Sync status"></div>
+  <div id="sync-ts" style="font-size:9px;color:var(--text3);display:none"></div>
     </div>
     <div id="header-right">
       <button id="btn-search" title="Rechercher" aria-label="Rechercher">🔍</button>
@@ -970,10 +971,19 @@ async function syncFromServer() {
     await idbSet('kv','journal', S.journal);
     await idbSet('kv','cats',    S.cats);
     setSyncDot('ok');
+    // Update last sync time
+    const ts = document.getElementById('sync-ts');
+    if (ts) {
+      const now = new Date();
+      ts.textContent = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+      ts.style.display = '';
+      setTimeout(() => ts.style.display = 'none', 5000);
+    }
   } catch(e) {
     if (e.name !== 'AbortError') {
       console.warn('Sync from server failed:', e);
       setSyncDot('err');
+      // Don't show toast for AbortError (just connectivity issue)
     }
   }
 }
@@ -1014,14 +1024,16 @@ async function pushToServer() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(30000), // 30s — handles Render wake-up
     });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     setSyncDot('ok');
   } catch(e) {
-    if (e.name !== 'AbortError') {
-      console.warn('Push to server failed:', e);
-      setSyncDot('err');
+    console.warn('Push to server failed:', e.name, e.message);
+    setSyncDot('err');
+    // Retry once after 5 seconds if not a permanent error
+    if (e.name === 'AbortError' || e.message?.includes('fetch')) {
+      setTimeout(() => pushToServer().catch(() => {}), 5000);
     }
   }
 }
@@ -3519,13 +3531,22 @@ async function boot() {
   // Sync bidirectionnel au démarrage :
   // 1. Pull depuis serveur (récupère ce que les autres appareils ont poussé)
   // 2. Push local vers serveur (envoie ce que CE device a en IDB mais pas encore sur serveur)
-  syncFromServer()
-    .then(async () => {
+  // Wake up Render first (free tier sleeps), then sync
+  const wakeAndSync = async () => {
+    try {
+      // Quick ping to wake server before heavy sync
+      await fetch('/api/ping', { signal: AbortSignal.timeout(35000) });
+    } catch(e) { /* offline */ }
+    try {
+      await syncFromServer();
       render();
-      // Après pull, on pousse les données locales — couvre le cas "ajouté avant mise à jour sync"
       await pushToServer();
-    })
-    .catch(() => pushToServer()); // offline → push quand même pour quand ça reprend
+    } catch(e) {
+      // Retry after 10s if initial sync fails
+      setTimeout(() => syncFromServer().then(() => render()).catch(()=>{}), 10000);
+    }
+  };
+  wakeAndSync();
   // Auto-sync Apple Calendar -> KAT au demarrage puis toutes les 5 min
   autoSyncFromApple();
   setInterval(autoSyncFromApple, 5 * 60 * 1000);
