@@ -31,20 +31,26 @@ const DEFAULT_DATA = {
 function ghRequest(method, p, body) {
   return new Promise((resolve, reject) => {
     if (!GITHUB_TOKEN) return resolve(null);
+    const bodyStr = body ? JSON.stringify(body) : '';
     const opts = {
       hostname:'api.github.com', path:p, method,
       headers:{
         'Authorization':`token ${GITHUB_TOKEN}`,
         'Accept':'application/vnd.github.v3+json',
-        'User-Agent':'KAT-App/3.0','Content-Type':'application/json',
+        'User-Agent':'KAT-App/3.0',
+        'Content-Type':'application/json',
+        'Content-Length':Buffer.byteLength(bodyStr),
       },
     };
     const req = https.request(opts, res => {
       let d=''; res.on('data',c=>d+=c);
-      res.on('end',()=>{try{resolve({s:res.statusCode,b:JSON.parse(d)});}catch{resolve({s:res.statusCode,b:d});}});
+      res.on('end',()=>{
+        try{resolve({s:res.statusCode,b:JSON.parse(d)});}
+        catch{resolve({s:res.statusCode,b:d});}
+      });
     });
     req.on('error',reject);
-    if(body) req.write(JSON.stringify(body));
+    if(bodyStr) req.write(bodyStr);
     req.end();
   });
 }
