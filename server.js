@@ -36,6 +36,92 @@ function loadData() {
 function saveData(d) {
   try { fs.writeFileSync(DATA_FILE, JSON.stringify(d, null, 2)); }
   catch(e) { console.warn('save error:', e.message); }
+  // Also update public/kat.ics on GitHub so subscription URL is always fresh
+  updateGithubICS(d.events || {}).catch(() => {});
+}
+
+// GitHub credentials for static iCal hosting
+const GH_TOKEN = process.env.GITHUB_TOKEN;
+const GH_OWNER = 'leoderoudilhe-cell';
+const GH_REPO  = 'kat-backend';
+const GH_ICS_PATH = 'public/kat.ics';
+let _icsSha = null; // cached SHA for updates
+
+function ghPut(filePath, content, sha) {
+  return new Promise((resolve, reject) => {
+    if (!GH_TOKEN) return resolve(null);
+    const body = JSON.stringify({
+      message: 'KAT calendar update',
+      content: Buffer.from(content).toString('base64'),
+      ...(sha ? { sha } : {}),
+    });
+    const opts = {
+      hostname: 'api.github.com',
+      path: `/repos/${GH_OWNER}/${GH_REPO}/contents/${filePath}`,
+      method: 'PUT',
+      headers: {
+        Authorization: `token ${GH_TOKEN}`,
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'KAT/3.0',
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    };
+    const req = https.request(opts, res => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(d) }); }
+        catch { resolve({ status: res.statusCode }); }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+async function getIcsSha() {
+  if (_icsSha) return _icsSha;
+  try {
+    const opts = {
+      hostname: 'api.github.com',
+      path: `/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_ICS_PATH}`,
+      method: 'GET',
+      headers: {
+        Authorization: `token ${GH_TOKEN}`,
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'KAT/3.0',
+      },
+    };
+    const res = await new Promise((resolve, reject) => {
+      const req = https.request(opts, r => {
+        let d = ''; r.on('data', c => d += c);
+        r.on('end', () => resolve({ status: r.statusCode, body: JSON.parse(d) }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+    if (res.status === 200 && res.body.sha) {
+      _icsSha = res.body.sha;
+      return _icsSha;
+    }
+  } catch(e) {}
+  return null;
+}
+
+async function updateGithubICS(events) {
+  if (!GH_TOKEN) return;
+  const icsContent = buildICS(events);
+  const sha = await getIcsSha();
+  const result = await ghPut(GH_ICS_PATH, icsContent, sha);
+  if (result && (result.status === 200 || result.status === 201)) {
+    _icsSha = result.body?.content?.sha || sha;
+    console.log('✅ GitHub kat.ics updated');
+  } else {
+    console.warn('GitHub ICS update failed:', result?.status);
+    _icsSha = null; // reset to force re-fetch next time
+  }
 }
 
 app.use(cors({ origin: '*' }));
