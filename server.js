@@ -35,25 +35,32 @@ const DEFAULT = {
   ],
 };
 
+let _cachedData = null;
 function loadData() {
+  if (_cachedData) return _cachedData;
   try {
     if (fs.existsSync(DATA_FILE)) {
       const d = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
       _pushSubs = d._pushSubs || [];
+      _cachedData = d;
       return d;
     }
   } catch(e) { console.warn('load error:', e.message); }
-  return JSON.parse(JSON.stringify(DEFAULT));
+  _cachedData = JSON.parse(JSON.stringify(DEFAULT));
+  return _cachedData;
 }
 
+// Debounce GitHub persistence (avoid too many API calls)
+let _ghPersistTimer = null;
 function saveData(d) {
   try {
-    d._pushSubs = _pushSubs; // persist subscriptions
+    d._pushSubs = _pushSubs;
     fs.writeFileSync(DATA_FILE, JSON.stringify(d, null, 2));
-  }
-  catch(e) { console.warn('save error:', e.message); }
-  // Also update public/kat.ics on GitHub so subscription URL is always fresh
+  } catch(e) { console.warn('save error:', e.message); }
   updateGithubICS(d.events || {}).catch(() => {});
+  // Debounced GitHub data persistence (every 10s max)
+  clearTimeout(_ghPersistTimer);
+  _ghPersistTimer = setTimeout(() => persistDataToGitHub(d).catch(()=>{}), 10000);
 }
 
 // GitHub credentials for static iCal hosting
@@ -136,8 +143,83 @@ async function updateGithubICS(events) {
     console.log('✅ GitHub kat.ics updated');
   } else {
     console.warn('GitHub ICS update failed:', result?.status);
-    _icsSha = null; // reset to force re-fetch next time
+    _icsSha = null;
   }
+}
+
+// Persist ALL app data to GitHub (survives Render restarts)
+const GH_DATA_PATH = 'data/app.json';
+let _dataSha = null;
+
+async function persistDataToGitHub(data) {
+  if (!GH_TOKEN) return;
+  try {
+    // Get current SHA
+    if (!_dataSha) {
+      const r = await new Promise((resolve, reject) => {
+        const req = https.request({
+          hostname: 'api.github.com',
+          path: `/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_DATA_PATH}`,
+          method: 'GET',
+          headers: { Authorization: `token ${GH_TOKEN}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'KAT/3.0' }
+        }, res => { let d=''; res.on('data',c=>d+=c); res.on('end',()=>{ try{resolve({s:res.statusCode,b:JSON.parse(d)});}catch{resolve({s:res.statusCode,b:{}}); }}); });
+        req.on('error', reject);
+        req.end();
+      });
+      if (r.s === 200) _dataSha = r.b.sha;
+    }
+    // Upload data (strip photos to keep size manageable)
+    const clean = { ...data };
+    if (clean.journal) {
+      clean.journal = Object.fromEntries(Object.entries(clean.journal).map(([k,v])=>[k,{...v,photos:undefined}]));
+    }
+    delete clean._pushSubs;
+    const body = JSON.stringify({ message: 'KAT data', content: Buffer.from(JSON.stringify(clean)).toString('base64'), ..._dataSha ? {sha: _dataSha} : {} });
+    const result = await new Promise((resolve, reject) => {
+      const b = Buffer.from(body);
+      const req = https.request({
+        hostname: 'api.github.com',
+        path: `/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_DATA_PATH}`,
+        method: 'PUT',
+        headers: { Authorization: `token ${GH_TOKEN}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'KAT/3.0', 'Content-Type': 'application/json', 'Content-Length': b.length }
+      }, res => { let d=''; res.on('data',c=>d+=c); res.on('end',()=>{ try{resolve({s:res.statusCode,b:JSON.parse(d)});}catch{resolve({s:res.statusCode,b:{}}); }}); });
+      req.on('error', reject);
+      req.write(b);
+      req.end();
+    });
+    if (result.s === 200 || result.s === 201) {
+      _dataSha = result.b.content?.sha || _dataSha;
+      console.log('✅ Data persisted to GitHub');
+    } else if (result.s === 409 || result.s === 422) {
+      // SHA conflict — reset and retry once
+      _dataSha = null;
+      console.warn('GitHub data conflict, resetting SHA...');
+    }
+  } catch(e) { console.warn('GitHub persist error:', e.message); }
+}
+
+// Load data from GitHub on startup (before reading file)
+async function loadFromGitHub() {
+  if (!GH_TOKEN) return null;
+  try {
+    const r = await new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: 'api.github.com',
+        path: `/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_DATA_PATH}`,
+        method: 'GET',
+        headers: { Authorization: `token ${GH_TOKEN}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'KAT/3.0' }
+      }, res => { let d=''; res.on('data',c=>d+=c); res.on('end',()=>{ try{resolve({s:res.statusCode,b:JSON.parse(d)});}catch{resolve({s:res.statusCode,b:{}});}});}); 
+      req.on('error', reject);
+      req.end();
+    });
+    if (r.s === 200 && r.b.content) {
+      const data = JSON.parse(Buffer.from(r.b.content, 'base64').toString('utf8'));
+      _dataSha = r.b.sha;
+      console.log('✅ Data loaded from GitHub');
+      return data;
+    }
+  } catch(e) { console.warn('GitHub load error:', e.message); }
+  return null;
 }
 
 app.use(cors({ origin: '*' }));
@@ -582,15 +664,27 @@ app.post('/api/delete-event', async (req, res) => {
 app.get('*', (_, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app._icloudTimer = null;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🐱 KAT v3 on :${PORT}`);
-  console.log(`📅 webcal://kat-app.onrender.com/ical`);
-  // Nettoyage one-time des events de test iCloud
-  const TEST_IDS = ['kat-test-001','kat-sync-v2-001','kat-final-test-001','kat-https-fix-001','kat-final-v5','kat-caldav-test-001'];
-  setTimeout(() => {
-    TEST_IDS.forEach(id => deleteFromiCloud(id).catch(() => {}));
-    console.log('🧹 Cleanup events test iCloud lancé');
-  }, 5000);
+  // Restore data from GitHub on startup
+  loadFromGitHub().then(ghData => {
+    if (ghData) {
+      _cachedData = { ...JSON.parse(JSON.stringify(DEFAULT)), ...ghData };
+      _pushSubs = ghData._pushSubs || [];
+      try { fs.writeFileSync(DATA_FILE, JSON.stringify(_cachedData, null, 2)); } catch(e){}
+      const evCount = Object.values(ghData.events||{}).reduce((a,v)=>a+(Array.isArray(v)?v.length:0),0);
+      const courseCount = (ghData.courses?.items||[]).length;
+      console.log(`✅ Restored from GitHub: ${evCount} events, ${courseCount} courses`);
+    }
+    // Start daily journal push reminder
+    scheduleDailyJournalReminder();
+    // Schedule event reminders
+    setTimeout(() => scheduleEventReminders(loadData().events), 3000);
+  }).catch(e => {
+    console.warn('GitHub restore failed:', e.message);
+    scheduleDailyJournalReminder();
+    setTimeout(() => scheduleEventReminders(loadData().events), 3000);
+  });
 });
 
 // ═══════════════════════════════════════════════
