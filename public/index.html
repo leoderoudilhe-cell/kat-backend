@@ -1178,10 +1178,22 @@ function renderDay(container) {
         const dur = (ev.duration || 60) / 60 * 64;
         const cat = getCat(ev.catId);
         const color = ev.color || cat.color;
+        const evDone = isEventDone(ev, dk);
         html += `<div class="ev-positioned" data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(originalKey)}" data-ev-dk="${escHtml(dk)}"
-          style="position:absolute;top:${top}px;left:44px;right:4px;height:${Math.max(dur,24)}px;background:${escHtml(color)};border-radius:6px;padding:3px 6px;cursor:pointer;overflow:hidden;z-index:2">
-          <div style="font-size:12px;font-weight:700;color:white">${escHtml(ev.title)}</div>
-          ${ev.time ? `<div style="font-size:10px;color:rgba(255,255,255,0.8)">${escHtml(ev.time)}</div>` : ''}
+          style="position:absolute;top:${top}px;left:44px;right:4px;height:${Math.max(dur,32)}px;background:${evDone?'#8E8E93':escHtml(color)};border-radius:6px;padding:4px 6px;cursor:pointer;overflow:hidden;z-index:2;display:flex;align-items:flex-start;gap:4px;opacity:${evDone?0.6:1}">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:700;color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${evDone?'text-decoration:line-through':''}">${escHtml(ev.title)}</div>
+            ${ev.time && Math.max(dur,32)>28 ? `<div style="font-size:10px;color:rgba(255,255,255,0.8)">${escHtml(ev.time)}${ev.duration?' · '+ev.duration+'min':''}</div>` : ''}
+            ${ev.location && Math.max(dur,32)>44 ? `<button class="ev-map-btn" data-loc="${escHtml(ev.location)}" style="display:flex;align-items:center;gap:3px;background:rgba(255,255,255,0.2);border:none;border-radius:4px;padding:2px 6px;color:white;font-size:10px;cursor:pointer;margin-top:2px;font-family:inherit;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">📍 ${escHtml(ev.location.split(',')[0])}</button>` : ''}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">
+            <button class="ev-done-btn" data-ev-id="${escHtml(ev.id)}" data-orig="${escHtml(originalKey)}" data-dk="${escHtml(dk)}"
+              style="width:22px;height:22px;border-radius:50%;border:2px solid ${evDone?'white':'rgba(255,255,255,0.7)'};background:${evDone?'rgba(255,255,255,0.3)':'none'};color:white;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"
+              title="${evDone?'Annuler':'Marquer fait'}">
+              ${evDone?'✓':''}
+            </button>
+            ${ev.location ? `<button class="ev-map-btn" data-loc="${escHtml(ev.location)}" style="width:22px;height:22px;border-radius:4px;background:rgba(255,255,255,0.2);border:none;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" title="Ouvrir dans Plans">📍</button>` : ''}
+          </div>
         </div>`;
       }
     }
@@ -1216,8 +1228,8 @@ function renderDay(container) {
     }
   }
   html += '</div></div>';
-  // Persistent todos section at bottom of day view
-  if (S.ptodos && S.ptodos.length > 0) {
+  // Persistent todos section always visible at bottom of day view
+  {
     const ptAll = S.ptodos;
     const ptDone = ptAll.filter(p=>p.done).length;
     const ptPct = Math.round(ptDone/ptAll.length*100);
@@ -1236,6 +1248,12 @@ function renderDay(container) {
         <div class="todo-check${pt.done?" done":""} ptcheck-day" data-ptid="${escHtml(pt.id)}"></div>
         <span class="todo-text${pt.done?" done":""} ptodo-text-day"></span>
         <span style="font-size:9px;background:${pr.bg};color:${pr.color};border-radius:8px;padding:1px 6px;font-weight:700;margin-left:auto">${pr.label}</span>
+      </div>`;
+    }
+    if (!sorted.length) {
+      html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0">
+        <span style="font-size:14px;color:var(--text2)">Aucune tâche permanente</span>
+        <button onclick="openAddPtodoModal()" style="background:var(--kat);color:white;border:none;border-radius:14px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">＋ Ajouter</button>
       </div>`;
     }
     if (sorted.length>4) html+=`<div style="font-size:12px;color:var(--text2);text-align:center;padding:6px 0;cursor:pointer" onclick="setTab('todos')">+${sorted.length-4} autres →</div>`;
@@ -1356,8 +1374,26 @@ function attachEventHandlers(container) {
   // Event positionné → edit
   container.querySelectorAll('.ev-positioned').forEach(el => {
     el.addEventListener('click', e => {
+      if (e.target.closest('.ev-done-btn') || e.target.closest('.ev-map-btn')) return;
       e.stopPropagation();
       openEventModal(el.dataset.evDate, el.dataset.evId);
+    });
+  });
+  // Done button inside time-grid events
+  container.querySelectorAll('.ev-positioned .ev-done-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      await toggleDone(btn.dataset.evId, btn.dataset.orig, btn.dataset.dk);
+      const rect = btn.getBoundingClientRect();
+      launchConfetti(rect.left + rect.width/2, rect.top + rect.height/2);
+      haptic([50,30,50]);
+    });
+  });
+  // Map button inside time-grid events
+  container.querySelectorAll('.ev-positioned .ev-map-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      openInMaps(btn.dataset.loc);
     });
   });
 
