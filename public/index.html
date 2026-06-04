@@ -3715,12 +3715,23 @@ async function boot() {
   // Register Service Worker for Web Push notifications
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js')
-      .then(reg => {
+      .then(async reg => {
         _swReg = reg;
-        console.log('✅ SW registered, scope:', reg.scope);
-        // Auto-subscribe if notifications already granted and enabled
+        console.log('✅ SW registered');
         if (Notification.permission === 'granted' && S.settings.notifEnabled !== false) {
-          subscribeToPush(reg).catch(e => console.warn('Auto-subscribe failed:', e.message));
+          // Check if browser already has a subscription
+          const existing = await reg.pushManager.getSubscription().catch(()=>null);
+          if (existing) {
+            // Silently re-register with server (in case server lost it after restart)
+            fetch('/api/push-subscribe', {
+              method: 'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify(existing.toJSON())
+            }).catch(()=>{});
+          } else {
+            // No subscription yet — create one
+            subscribeToPush(reg).catch(()=>{});
+          }
         }
       })
       .catch(e => console.warn('SW registration failed:', e.message));
