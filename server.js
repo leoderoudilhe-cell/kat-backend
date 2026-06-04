@@ -15,7 +15,7 @@ const DATA_FILE = path.join(DATA_DIR, 'kat.json');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const DEFAULT = {
-  events:{}, todos:{}, journal:{},
+  events:{}, todos:{}, journal:{}, settings:{},
   cats:[
     {id:'work',   name:'Travail',   color:'#007AFF',emoji:'💼'},
     {id:'sport',  name:'Sport',     color:'#34C759',emoji:'🏃'},
@@ -98,7 +98,7 @@ async function getIcsSha() {
     const res = await new Promise((resolve, reject) => {
       const req = https.request(opts, r => {
         let d = ''; r.on('data', c => d += c);
-        r.on('end', () => resolve({ status: r.statusCode, body: JSON.parse(d) }));
+        r.on('end', () => { try { resolve({ status: r.statusCode, body: JSON.parse(d) }); } catch { resolve({ status: r.statusCode, body: {} }); } });
       });
       req.on('error', reject);
       req.end();
@@ -203,9 +203,10 @@ app.post('/api/data', (req, res) => {
     if (b.events  !== undefined) d.events  = b.events;
     if (b.todos   !== undefined) d.todos   = b.todos;
     if (b.cats    !== undefined) d.cats    = b.cats;
-    if (b.courses !== undefined) d.courses = b.courses;
-    if (b.ptodos  !== undefined) d.ptodos  = b.ptodos;
-    if (b.journal) {
+    if (b.courses  !== undefined) d.courses  = b.courses;
+    if (b.ptodos   !== undefined) d.ptodos   = b.ptodos;
+    if (b.settings !== undefined) d.settings = b.settings;
+    if (b.journal !== undefined && b.journal !== null) {
       for (const [k, v] of Object.entries(b.journal))
         d.journal[k] = { mood: v.mood, text: v.text, date: v.date };
     }
@@ -233,7 +234,7 @@ app.get('/ical', (_, res) => {
 });
 
 function esc(s) {
-  return (s||'').replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\;').replace(/\n/g,'\\n');
+  return (s||'').replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\\;').replace(/\n/g,'\\n');
 }
 function toD(dk, t) {
   const [y,m,d] = dk.split('-').map(Number);
@@ -308,7 +309,7 @@ function buildICS(events) {
       return `${dt.getUTCFullYear()}${p(dt.getUTCMonth()+1)}${p(dt.getUTCDate())}T${p(dt.getUTCHours())}${p(dt.getUTCMinutes())}00Z`;
     };
     push('BEGIN:VEVENT');
-    push(`UID:${ev.id||dk+Math.random().toString(36).slice(2)}@kat`);
+    push(`UID:${ev.id||(dk+"-"+(ev.title||"").slice(0,6).replace(/[^a-z0-9]/gi,""))}@kat`);
     push(`DTSTAMP:${nowStamp()}`);
     push(`DTSTART:${fmtUTC(startDate)}`);
     push(`DTEND:${fmtUTC(endDate)}`);
@@ -339,7 +340,6 @@ app.get('/api/sync-from-icloud', async (req, res) => {
     return res.status(503).json({ error: 'iCloud credentials non configurés' });
   }
   try {
-    const creds = Buffer.from(`${ICLOUD_EMAIL}:${ICLOUD_PASSWORD}`).toString('base64');
     // PROPFIND pour lister les .ics
     const propfindBody = `<?xml version="1.0" encoding="UTF-8"?>\
 <D:propfind xmlns:D="DAV:"><D:prop><D:getetag/><D:getcontenttype/></D:prop></D:propfind>`;

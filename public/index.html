@@ -501,7 +501,7 @@ input, textarea { font-family: inherit; }
       <span class="icon">📊</span>
       <span>Stats</span>
     </button>
-    <button class="nav-btn" data-tab="courses" onclick="setTab('courses')">
+    <button class="nav-btn" data-tab="courses">
       <span class="icon">🛒</span>
       <span>Courses</span>
     </button>
@@ -866,6 +866,7 @@ async function loadAll() {
   }
 }
 async function saveData() {
+  invalidateEvCache(); // Clear eventsForDay cache on any data change
   try {
     await idbSet('kv','events',  S.events);
     await idbSet('kv','todos',   S.todos);
@@ -906,6 +907,14 @@ async function syncFromServer() {
     if (data.cats   && data.cats.length)  S.cats   = data.cats;
     if (data.courses && data.courses.items) S.courses = data.courses;
     if (data.ptodos  && data.ptodos.length > 0) S.ptodos = data.ptodos;
+    if (data.settings) {
+      S.settings = { ...S.settings, ...data.settings };
+      // Apply dark mode if changed
+      if (S.settings.dark !== undefined) {
+        document.documentElement.dataset.dark = S.settings.dark ? '1' : '0';
+      }
+      await idbSet('kv', 'settings', S.settings);
+    }
     // Journal: merge (remote text wins, local photos preserved)
     if (data.journal) {
       for (const [k, entry] of Object.entries(data.journal)) {
@@ -938,7 +947,8 @@ async function pushToServer() {
     for (const [k, entry] of Object.entries(S.journal)) {
       journalClean[k] = { mood: entry.mood, text: entry.text, date: entry.date };
     }
-    const payload = { events: S.events, todos: S.todos, journal: journalClean, cats: S.cats, courses: S.courses, ptodos: S.ptodos };
+    const settingsClean = { dark: S.settings.dark, soundName: S.settings.soundName }; // don't sync binary sound data
+    const payload = { events: S.events, todos: S.todos, journal: journalClean, cats: S.cats, courses: S.courses, ptodos: S.ptodos, settings: settingsClean };
     const resp = await fetch('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -973,8 +983,13 @@ function getEvents(k) { return S.events[k] || []; }
 // WRITE
 function ensureEvents(k) { if (!S.events[k]) S.events[k] = []; }
 
-// Recurring expansion: returns dateKey list for which ev appears
+// Cache for eventsForDay — invalidated on saveData()
+const _evCache = new Map();
+function invalidateEvCache() { _evCache.clear(); }
+
+// Recurring expansion: returns events for a given dateKey
 function eventsForDay(k) {
+  if (_evCache.has(k)) return _evCache.get(k);
   const direct = (S.events[k] || []).map(ev => ({ ev, dateKey: k, originalKey: k }));
   const recurring = [];
   const target = parseDate(k);
@@ -997,7 +1012,9 @@ function eventsForDay(k) {
       if (matches) recurring.push({ ev, dateKey: k, originalKey: dk });
     }
   }
-  return [...direct, ...recurring];
+  const result = [...direct, ...recurring];
+  _evCache.set(k, result);
+  return result;
 }
 
 function isEventDone(ev, dk) { return !!(ev.doneInstances && ev.doneInstances[dk]); }
@@ -1280,7 +1297,7 @@ function renderDay(container) {
   {
     const ptAll = S.ptodos;
     const ptDone = ptAll.filter(p=>p.done).length;
-    const ptPct = Math.round(ptDone/ptAll.length*100);
+    const ptPct = ptAll.length ? Math.round(ptDone/ptAll.length*100) : 0;
     const sorted = [...ptAll].sort((a,b)=>({high:0,medium:1,low:2}[a.priority||'low']||2)-({high:0,medium:1,low:2}[b.priority||'low']||2));
     html += '<div class="card"><div class="section">';
     html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -1381,6 +1398,7 @@ function renderTodoItem(todo, dk) {
 }
 
 function renderProgressRing(pct) {
+  pct = isNaN(pct) ? 0 : Math.max(0, Math.min(100, pct));
   const r = 14; const c = 2*Math.PI*r;
   const offset = c - (pct/100)*c;
   return `<svg class="progress-ring" viewBox="0 0 36 36">
@@ -1593,7 +1611,7 @@ function renderWeek(container) {
       const cat = getCat(ev.catId);
       const done = isEventDone(ev, evDk);
       html += `<div class="week-event-pill${done?' done':''}" style="background:${escHtml(cat.color)};opacity:${done?0.5:1}"
-        data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(originalKey||dk)}" data-goto="${escHtml(dk)}">${escHtml(ev.title)}</div>`;
+        data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(dk)}" data-goto="${escHtml(dk)}">${escHtml(ev.title)}</div>`;
     }
     if (evs.length > 4) html += `<div style="font-size:10px;color:var(--text2)">+${evs.length-4}</div>`;
     html += '</div>';
@@ -1989,84 +2007,6 @@ document.getElementById('lightbox').addEventListener('touchend', e => {
   _lbTouchX = null;
 });
 
-// ═══ STATS ═══
-function renderStats(container) {
-  const now = new Date();
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - ((now.getDay()+6)%7));
-  const days = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
-    days.push(dateKey(d));
-  }
-
-  const evCounts = days.map(dk => eventsForDay(dk).length);
-  const maxEv = Math.max(...evCounts, 1);
-  const todoData = days.map(dk => {
-    const todos = getTodos(dk);
-    return { total: todos.length, done: todos.filter(t=>t.done).length };
-  });
-  const moodEmojis = days.map(dk => (S.journal[dk]||{}).mood || null);
-  const dayNames = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
-
-  let html = '<div style="padding:12px;display:flex;flex-direction:column;gap:12px">';
-
-  // Events bar chart
-  html += '<div class="card"><div class="section"><div class="section-title">Événements cette semaine</div>';
-  days.forEach((dk, i) => {
-    const pct = Math.round(evCounts[i]/maxEv*100);
-    html += `<div class="stats-bar-row">
-      <div class="stats-bar-label">${dayNames[i]}</div>
-      <div class="stats-bar-track"><div class="stats-bar-fill" style="width:${pct}%"></div></div>
-      <span style="font-size:12px;color:var(--text2);width:20px;text-align:right">${evCounts[i]}</span>
-    </div>`;
-  });
-  html += '</div></div>';
-
-  // Todos progress
-  html += '<div class="card"><div class="section"><div class="section-title">Tâches cette semaine</div>';
-  days.forEach((dk, i) => {
-    const {total, done} = todoData[i];
-    const pct = total ? Math.round(done/total*100) : 0;
-    html += `<div class="stats-bar-row">
-      <div class="stats-bar-label">${dayNames[i]}</div>
-      <div class="stats-bar-track"><div class="stats-bar-fill" style="width:${pct}%;background:#34C759"></div></div>
-      <span style="font-size:12px;color:var(--text2);width:40px;text-align:right">${done}/${total}</span>
-    </div>`;
-  });
-  html += '</div></div>';
-
-  // Mood dots
-  html += '<div class="card"><div class="section"><div class="section-title">Humeurs</div>';
-  html += '<div style="display:flex;gap:8px;align-items:center">';
-  days.forEach((dk, i) => {
-    const mood = moodEmojis[i];
-    html += `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
-      <div style="font-size:22px">${mood || '·'}</div>
-      <div style="font-size:10px;color:var(--text2)">${dayNames[i]}</div>
-    </div>`;
-  });
-  html += '</div></div></div>';
-
-  // Summary
-  const totalEvs = evCounts.reduce((a,b)=>a+b,0);
-  const totalDone = todoData.reduce((a,b)=>a+b.done,0);
-  const totalTodos = todoData.reduce((a,b)=>a+b.total,0);
-  const moodCount = moodEmojis.filter(Boolean).length;
-
-  html += `<div class="card"><div class="section">
-    <div class="section-title">Résumé de la semaine</div>
-    <p style="font-size:15px;line-height:1.6;color:var(--text2)">
-      📅 ${totalEvs} événement${totalEvs!==1?'s':''} cette semaine.<br>
-      ✅ ${totalDone} tâche${totalDone!==1?'s':''} complétées sur ${totalTodos}.<br>
-      📔 ${moodCount} jour${moodCount!==1?'s':''} de journal rempli${moodCount!==1?'s':''}.
-    </p>
-  </div></div>`;
-
-  html += '</div>';
-  container.innerHTML = html;
-}
 
 // ═══ EVENT MODAL ═══
 function openEventModal(dateStr, evId) {
@@ -2486,7 +2426,6 @@ async function uploadSound(input) {
   reader.readAsDataURL(file);
 }
 
-function exportIcs() { window.open('/ical', '_blank'); }
 
 async function importIcs(input) {
   const file = input.files[0];
@@ -3455,7 +3394,7 @@ async function autoSyncFromApple() {
     if (added > 0) {
       await saveData();
       render();
-      if (localEmpty) toast('🔄 Données restaurées depuis iCloud (' + added + ' events)');
+      if (localEmpty) toast('🔄 ' + added + ' event(s) restauré(s) depuis iCloud');
       toast();
     }
   } catch(e) { /* silencieux si hors-ligne */ }
