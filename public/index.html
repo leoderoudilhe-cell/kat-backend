@@ -2379,8 +2379,34 @@ function updateNotifBtn() {
   const statusLbl = document.getElementById('notif-status-label');
   if (!btn) return;
   if (!('Notification' in window)) {
-    btn.textContent = 'Non supporté';
+    // Detect iOS version for helpful message
+    const iosMatch = navigator.userAgent.match(/OS (\d+)_(\d+)/);
+    const iosVersion = iosMatch ? parseFloat(iosMatch[1] + '.' + iosMatch[2]) : null;
+    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    const isInstalledPWA = window.navigator.standalone === true;
+
+    let msg = 'Non supporté';
+    if (isIOS && iosVersion && iosVersion < 16.4) {
+      msg = `iOS ${iosVersion} — nécessite iOS 16.4+`;
+    } else if (isIOS && !isInstalledPWA) {
+      msg = 'Installer sur écran d\'accueil d\'abord';
+    }
+    btn.textContent = msg;
+    btn.style.fontSize = '11px';
     btn.disabled = true;
+
+    const statusRow = document.getElementById('notif-status-row');
+    const statusLbl = document.getElementById('notif-status-label');
+    if (statusRow && isIOS && iosVersion) {
+      statusRow.style.display = '';
+      if (iosVersion < 16.4) {
+        statusLbl.textContent = `⚠️ iOS ${iosVersion} détecté — les notifications PWA nécessitent iOS 16.4 minimum.`;
+        statusLbl.style.color = 'var(--red)';
+      } else if (!isInstalledPWA) {
+        statusLbl.textContent = '📲 Pour activer les notifications, installe KAT sur l\'écran d\'accueil (Safari → Partager → Sur l\'écran d\'accueil), puis ouvre-la depuis l\'icône.';
+        statusLbl.style.color = 'var(--orange)';
+      }
+    }
     return;
   }
   if (Notification.permission === 'granted') {
