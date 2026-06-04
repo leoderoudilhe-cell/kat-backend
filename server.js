@@ -83,36 +83,76 @@ function toD(dk, t) {
   const p = n => String(n).padStart(2,'0');
   return `${y}${p(m)}${p(d)}T${p(h)}${p(mi)}00`;
 }
+function nowStamp() {
+  const n = new Date();
+  const p = x => String(x).padStart(2,'0');
+  return `${n.getUTCFullYear()}${p(n.getUTCMonth()+1)}${p(n.getUTCDate())}T${p(n.getUTCHours())}${p(n.getUTCMinutes())}${p(n.getUTCSeconds())}Z`;
+}
+
 function buildICS(events) {
   const L = [
-    'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//KAT//FR',
-    'CALSCALE:GREGORIAN','METHOD:PUBLISH',
-    'X-WR-CALNAME:KAT 🐱','X-WR-CALDESC:Agenda KAT',
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//KAT App//FR',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'X-WR-CALNAME:KAT Agenda',
+    'X-WR-CALDESC:Agenda personnel KAT',
+    'X-WR-TIMEZONE:Europe/Paris',
     'REFRESH-INTERVAL;VALUE=DURATION:PT15M',
+    'X-PUBLISHED-TTL:PT15M',
   ];
+
+  // Always include at least one VEVENT so Apple Calendar accepts the feed
+  const allEvs = [];
   for (const [dk, evs] of Object.entries(events)) {
     if (!Array.isArray(evs)) continue;
-    for (const ev of evs) {
-      if (!ev.title) continue;
-      const dur = parseInt(ev.duration) || 60;
-      const [h,mi] = (ev.time||'09:00').split(':').map(Number);
-      const tm = h*60+mi+dur;
-      const endT = `${String(Math.floor(tm/60)).padStart(2,'0')}:${String(tm%60).padStart(2,'0')}`;
-      L.push('BEGIN:VEVENT',
-        `UID:${ev.id||dk+'-'+Math.random().toString(36).slice(2)}@kat`,
-        `DTSTAMP:${toD(new Date().toISOString().slice(0,10),'00:00')}`,
-        `DTSTART:${toD(dk,ev.time)}`, `DTEND:${toD(dk,endT)}`,
-        `SUMMARY:${esc(ev.title)}`, `STATUS:${ev.done?'COMPLETED':'CONFIRMED'}`);
-      if (ev.location) L.push(`LOCATION:${esc(ev.location)}`);
-      if (ev.notes)    L.push(`DESCRIPTION:${esc(ev.notes)}`);
-      const rm = {daily:'DAILY',weekly:'WEEKLY',monthly:'MONTHLY',yearly:'YEARLY'};
-      if (ev.recurrence&&ev.recurrence!=='none') L.push(`RRULE:FREQ=${rm[ev.recurrence]}`);
-      (ev.reminders||[]).forEach(m => {
-        if (m>0) L.push('BEGIN:VALARM',`TRIGGER:-PT${m}M`,'ACTION:DISPLAY',`DESCRIPTION:Rappel: ${esc(ev.title)}`,'END:VALARM');
-      });
-      L.push('END:VEVENT');
-    }
+    evs.forEach(ev => { if (ev.title) allEvs.push({dk, ev}); });
   }
+
+  // If no events yet, add a placeholder so Apple Calendar validates
+  if (allEvs.length === 0) {
+    const today = new Date().toISOString().slice(0,10);
+    L.push(
+      'BEGIN:VEVENT',
+      `UID:kat-placeholder@kat-app`,
+      `DTSTAMP:${nowStamp()}`,
+      `DTSTART;VALUE=DATE:${today.replace(/-/g,'')}`,
+      `DTEND;VALUE=DATE:${today.replace(/-/g,'')}`,
+      'SUMMARY:KAT Agenda',
+      'DESCRIPTION:Abonnement KAT actif. Creez des evenements dans KAT pour les voir ici.',
+      'STATUS:CONFIRMED',
+      'END:VEVENT'
+    );
+  }
+
+  for (const {dk, ev} of allEvs) {
+    const dur = parseInt(ev.duration) || 60;
+    const [h,mi] = (ev.time||'09:00').split(':').map(Number);
+    const tm = h*60+mi+dur;
+    const endT = `${String(Math.floor(tm/60)).padStart(2,'0')}:${String(tm%60).padStart(2,'0')}`;
+    // Use TZID for local Paris time
+    L.push(
+      'BEGIN:VEVENT',
+      `UID:${ev.id||dk+'-'+Math.random().toString(36).slice(2)}@kat-app`,
+      `DTSTAMP:${nowStamp()}`,
+      `DTSTART;TZID=Europe/Paris:${toD(dk,ev.time)}`,
+      `DTEND;TZID=Europe/Paris:${toD(dk,endT)}`,
+      `SUMMARY:${esc(ev.title)}`,
+      `STATUS:${ev.done?'COMPLETED':'CONFIRMED'}`
+    );
+    if (ev.location) L.push(`LOCATION:${esc(ev.location)}`);
+    if (ev.notes)    L.push(`DESCRIPTION:${esc(ev.notes)}`);
+    const rm = {daily:'DAILY',weekly:'WEEKLY',monthly:'MONTHLY',yearly:'YEARLY'};
+    if (ev.recurrence&&ev.recurrence!=='none') L.push(`RRULE:FREQ=${rm[ev.recurrence]}`);
+    (ev.reminders||[]).forEach(m => {
+      if (m>0) {
+        L.push('BEGIN:VALARM',`TRIGGER:-PT${m}M`,'ACTION:DISPLAY',`DESCRIPTION:Rappel: ${esc(ev.title)}`,'END:VALARM');
+      }
+    });
+    L.push('END:VEVENT');
+  }
+
   L.push('END:VCALENDAR');
   return L.join('\r\n');
 }
