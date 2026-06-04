@@ -184,6 +184,22 @@ app.get('/api/data', (_, res) => {
 app.post('/api/data', (req, res) => {
   try {
     const d = loadData(), b = req.body;
+    // Détection des events supprimés avant merge
+    let deletedIds = [];
+    if (b.events !== undefined) {
+      const prevEvents = d.events || {};
+      const prevIds = new Set();
+      for (const evs of Object.values(prevEvents)) {
+        if (Array.isArray(evs)) evs.forEach(ev => { if (ev.id) prevIds.add(ev.id); });
+      }
+      const newIds = new Set();
+      for (const evs of Object.values(b.events || {})) {
+        if (Array.isArray(evs)) evs.forEach(ev => { if (ev.id) newIds.add(ev.id); });
+      }
+      for (const id of prevIds) {
+        if (!newIds.has(id)) deletedIds.push(id);
+      }
+    }
     if (b.events  !== undefined) d.events  = b.events;
     if (b.todos   !== undefined) d.todos   = b.todos;
     if (b.cats    !== undefined) d.cats    = b.cats;
@@ -195,6 +211,9 @@ app.post('/api/data', (req, res) => {
     // Sync to iCloud Calendar in background (non-blocking)
     if (b.events !== undefined) {
       syncToiCloud(d.events).catch(e => console.warn('iCloud sync failed:', e.message));
+      // Supprimer les events effacés depuis iCloud
+      deletedIds.forEach(id => deleteFromiCloud(id).catch(() => {}));
+      if (deletedIds.length) console.log(`🗑️ iCloud delete: ${deletedIds.join(', ')}`);
     }
     res.json({ ok: true });
   } catch(e) {
@@ -312,11 +331,90 @@ function buildICS(events) {
   return lines.join('\r\n');
 }
 
+// ── Sync depuis iCloud → KAT ──
+app.get('/api/sync-from-icloud', async (req, res) => {
+  if (!ICLOUD_CAL_URL || !ICLOUD_EMAIL || !ICLOUD_PASSWORD) {
+    return res.status(503).json({ error: 'iCloud credentials non configurés' });
+  }
+  try {
+    const creds = Buffer.from(`${ICLOUD_EMAIL}:${ICLOUD_PASSWORD}`).toString('base64');
+    // PROPFIND pour lister les .ics
+    const propfindBody = `<?xml version="1.0" encoding="UTF-8"?>\
+<D:propfind xmlns:D="DAV:"><D:prop><D:getetag/><D:getcontenttype/></D:prop></D:propfind>`;
+    const listResp = await caldavRequest('PROPFIND', ICLOUD_CAL_URL, propfindBody, {
+      'Depth': '1',
+      'Content-Type': 'application/xml; charset=utf-8',
+    });
+    if (!listResp || listResp.status >= 400) {
+      return res.status(502).json({ error: 'PROPFIND failed: ' + (listResp && listResp.status) });
+    }
+    // Parse hrefs des .ics
+    const hrefMatches = listResp.body.match(/<[^:]*:?href[^>]*>([^<]+\.ics[^<]*)<\/[^:]*:?href>/gi) || [];
+    const hrefs = hrefMatches.map(m => m.replace(/<[^>]+>/g, '').trim()).filter(h => h.endsWith('.ics'));
+
+    const events = [];
+    for (const href of hrefs) {
+      try {
+        const parsedBase = new URL(ICLOUD_CAL_URL);
+        const fullUrl = href.startsWith('http') ? href : `${parsedBase.protocol}//${parsedBase.host}${href}`;
+        const evResp = await caldavRequest('GET', fullUrl, null, {});
+        if (!evResp || evResp.status !== 200) continue;
+        const ics = evResp.body;
+        // Parse minimal iCal
+        const get = (field) => {
+          const m = ics.match(new RegExp(field + '[^:]*:([^\\r\\n]+)'));
+          return m ? m[1].replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\\;/g, ';').trim() : '';
+        };
+        const uid = get('UID');
+        const summary = get('SUMMARY');
+        const dtstart = get('DTSTART');
+        const dtend   = get('DTEND');
+        const location= get('LOCATION');
+        const desc    = get('DESCRIPTION');
+        if (!uid || !summary) continue;
+        // Parse DTSTART → date + time
+        let dateKey = '', time = '';
+        const dtClean = dtstart.replace(/TZID=[^:]+:/, '');
+        if (dtClean.length >= 8) {
+          const y = dtClean.slice(0,4), mo = dtClean.slice(4,6), dy = dtClean.slice(6,8);
+          dateKey = `${y}-${mo}-${dy}`;
+          if (dtClean.length >= 13 && dtClean[8] === 'T') {
+            const h = dtClean.slice(9,11), mi2 = dtClean.slice(11,13);
+            time = `${h}:${mi2}`;
+          }
+        }
+        // Duration
+        let duration = 60;
+        if (dtend) {
+          const endClean = dtend.replace(/TZID=[^:]+:/, '');
+          if (endClean.length >= 13 && dtClean.length >= 13) {
+            const sMin = parseInt(dtClean.slice(9,11))*60 + parseInt(dtClean.slice(11,13));
+            const eMin = parseInt(endClean.slice(9,11))*60 + parseInt(endClean.slice(11,13));
+            if (eMin > sMin) duration = eMin - sMin;
+          }
+        }
+        events.push({ id: uid.replace(/@.*/, ''), title: summary, date: dateKey, time, duration, location, notes: desc });
+      } catch(e2) { /* skip malformed */ }
+    }
+    console.log(`📥 iCloud → KAT: ${events.length} event(s) parsés`);
+    res.json({ ok: true, events });
+  } catch(e) {
+    console.error('sync-from-icloud error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('*', (_, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app.listen(PORT, () => {
   console.log(`🐱 KAT v3 on :${PORT}`);
   console.log(`📅 webcal://kat-app.onrender.com/ical`);
+  // Nettoyage one-time des events de test iCloud
+  const TEST_IDS = ['kat-test-001','kat-sync-v2-001','kat-final-test-001','kat-https-fix-001','kat-final-v5','kat-caldav-test-001'];
+  setTimeout(() => {
+    TEST_IDS.forEach(id => deleteFromiCloud(id).catch(() => {}));
+    console.log('🧹 Cleanup events test iCloud lancé');
+  }, 5000);
 });
 
 // ═══════════════════════════════════════════════

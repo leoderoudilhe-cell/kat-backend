@@ -513,6 +513,17 @@ input, textarea { font-family: inherit; }
     <div class="modal-handle"></div>
     <div class="modal-title" id="event-modal-title">Nouvel événement</div>
     <div class="form-group">
+      <label class="form-label">Templates rapides</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px" id="ev-templates">
+        <button type="button" class="ev-tpl-btn" data-title="Sport" data-cat="sport" data-dur="60" style="padding:6px 10px;border-radius:20px;border:1.5px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;min-height:36px">💪 Sport 1h</button>
+        <button type="button" class="ev-tpl-btn" data-title="Médecin" data-cat="health" data-dur="30" style="padding:6px 10px;border-radius:20px;border:1.5px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;min-height:36px">🏥 Médecin 30min</button>
+        <button type="button" class="ev-tpl-btn" data-title="Café" data-cat="social" data-dur="60" style="padding:6px 10px;border-radius:20px;border:1.5px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;min-height:36px">☕ Café 1h</button>
+        <button type="button" class="ev-tpl-btn" data-title="Réunion" data-cat="work" data-dur="60" style="padding:6px 10px;border-radius:20px;border:1.5px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;min-height:36px">💼 Réunion 1h</button>
+        <button type="button" class="ev-tpl-btn" data-title="Yoga" data-cat="sport" data-dur="90" style="padding:6px 10px;border-radius:20px;border:1.5px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;min-height:36px">🧘 Yoga 1h30</button>
+        <button type="button" class="ev-tpl-btn" data-title="Restaurant" data-cat="leisure" data-dur="120" style="padding:6px 10px;border-radius:20px;border:1.5px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;min-height:36px">🍽️ Restaurant 2h</button>
+      </div>
+    </div>
+    <div class="form-group">
       <label class="form-label" for="ev-title">Titre</label>
       <input class="form-input" id="ev-title" type="text" placeholder="Ex : Yoga, RDV médecin…" maxlength="80">
     </div>
@@ -655,6 +666,13 @@ input, textarea { font-family: inherit; }
         <span class="settings-row-label">Importer .ics</span>
         <input type="file" id="ics-import" accept=".ics" style="display:none" onchange="importIcs(this)">
         <button class="btn-ghost" onclick="document.getElementById('ics-import').click()">Importer</button>
+      </div>
+      <div class="settings-row" style="background:linear-gradient(135deg,rgba(139,92,246,0.08),rgba(139,92,246,0.04));border-radius:var(--radius-sm)">
+        <div>
+          <div class="settings-row-label" style="font-weight:700">☁️ Sync depuis Apple Calendar</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">Importe les events iCloud → KAT</div>
+        </div>
+        <button class="btn-ghost" style="color:#8B5CF6;font-weight:700" onclick="syncFromAppleCalendar()">Sync</button>
       </div>
       <div class="settings-row">
         <span class="settings-row-label" id="webcal-label" style="font-size:12px">webcal://…/ical</span>
@@ -1145,6 +1163,7 @@ function renderEventBlock(ev, dk, originalKey) {
         ${done ? '✅' : '⭕'}
       </button>
       ${ev.location ? `<button class="ev-map-btn" data-loc="${escHtml(ev.location)}" title="Ouvrir dans Maps">📍</button>` : ''}
+      <button class="ev-share-btn" data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(originalKey)}" data-ev-dk="${escHtml(dk)}" title="Partager" style="font-size:16px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;color:var(--text2)">🔗</button>
     </div>
   </div>`;
 }
@@ -1230,6 +1249,31 @@ function attachEventHandlers(container) {
     btn.addEventListener('click', e => {
       e.stopPropagation();
       openInMaps(btn.dataset.loc);
+    });
+  });
+
+  // Share button
+  container.querySelectorAll('.ev-share-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const evId = btn.dataset.evId;
+      const date = btn.dataset.evDate;
+      const dk = btn.dataset.evDk;
+      const ev = (S.events[date]||[]).find(ev => ev.id === evId);
+      if (!ev) return;
+      const d = parseDate(dk);
+      const dStr = d.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: ev.title,
+            text: `${ev.title} — ${dStr}${ev.time ? ' à ' + ev.time : ''}${ev.location ? '\n📍 ' + ev.location : ''}`,
+            url: 'https://kat-app.onrender.com'
+          });
+        } catch(err) { /* cancelled */ }
+      } else {
+        toast('🔗 Partage non supporté sur ce navigateur');
+      }
     });
   });
 
@@ -1730,6 +1774,19 @@ function openEventModal(dateStr, evId) {
   });
   palette.dataset.selected = (ev && ev.color) || '';
 
+  // Templates rapides
+  document.querySelectorAll('.ev-tpl-btn').forEach(btn => {
+    btn.onclick = () => {
+      document.getElementById('ev-title').value = btn.dataset.title;
+      document.getElementById('ev-duration').value = btn.dataset.dur;
+      // Sélectionner la catégorie
+      const catId = btn.dataset.cat;
+      document.querySelectorAll('#ev-cat-list .cat-option').forEach(o => {
+        o.classList.toggle('selected', o.dataset.catId === catId);
+      });
+    };
+  });
+
   document.getElementById('event-modal').classList.add('open');
 }
 function closeEventModal() {
@@ -1941,7 +1998,10 @@ function renderCatsSettings() {
   const list = document.getElementById('cats-settings-list');
   const cats = getCats();
   list.innerHTML = '';
+  const CAT_COLORS = ['#007AFF','#34C759','#FF3B30','#FF9500','#8B5CF6','#5856D6','#FF2D55','#5AC8FA','#FFD60A','#FF6B6B','#4ECDC4','#06B6D4'];
   cats.forEach((cat, i) => {
+    const wrapper = document.createElement('div');
+
     const row = document.createElement('div');
     row.className = 'settings-row';
     row.style.gap = '10px';
@@ -1949,11 +2009,19 @@ function renderCatsSettings() {
     const dot = document.createElement('div');
     dot.className = 'cat-dot-big';
     dot.style.background = cat.color;
+    dot.style.cursor = 'pointer';
+    dot.title = 'Modifier';
 
     const name = document.createElement('span');
     name.className = 'settings-row-label';
     name.textContent = cat.emoji + ' ' + cat.name;
     name.style.flex = '1';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn-ghost';
+    editBtn.textContent = '✏️';
+    editBtn.style.fontSize = '16px';
+    editBtn.title = 'Modifier';
 
     const del = document.createElement('button');
     del.className = 'btn-danger';
@@ -1966,8 +2034,55 @@ function renderCatsSettings() {
 
     row.appendChild(dot);
     row.appendChild(name);
+    row.appendChild(editBtn);
     row.appendChild(del);
-    list.appendChild(row);
+    wrapper.appendChild(row);
+
+    // Mini modal inline pour édition
+    const editPanel = document.createElement('div');
+    editPanel.style.cssText = 'display:none;padding:12px;background:var(--bg);border-radius:10px;margin:4px 0 8px;gap:8px;flex-direction:column';
+    editPanel.innerHTML = `
+      <input type="text" class="form-input cat-name-input" value="${escHtml(cat.name)}" placeholder="Nom" style="margin-bottom:6px">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+        ${CAT_COLORS.map(c => `<div class="cat-color-swatch" data-color="${c}" style="width:28px;height:28px;border-radius:50%;background:${c};cursor:pointer;border:${c===cat.color?'3px solid var(--text)':'3px solid transparent'}"></div>`).join('')}
+      </div>
+      <button class="btn-primary cat-save-btn" style="align-self:flex-start;padding:6px 16px">Enregistrer</button>
+    `;
+    wrapper.appendChild(editPanel);
+
+    const toggleEdit = () => {
+      const open = editPanel.style.display === 'flex';
+      editPanel.style.display = open ? 'none' : 'flex';
+    };
+    editBtn.addEventListener('click', toggleEdit);
+    dot.addEventListener('click', toggleEdit);
+
+    // Sélection couleur
+    editPanel.querySelectorAll('.cat-color-swatch').forEach(sw => {
+      sw.addEventListener('click', () => {
+        editPanel.querySelectorAll('.cat-color-swatch').forEach(s => s.style.border = '3px solid transparent');
+        sw.style.border = '3px solid var(--text)';
+        editPanel.dataset.selectedColor = sw.dataset.color;
+      });
+    });
+    editPanel.dataset.selectedColor = cat.color;
+
+    editPanel.querySelector('.cat-save-btn').addEventListener('click', async () => {
+      const newName = editPanel.querySelector('.cat-name-input').value.trim();
+      if (!newName) return;
+      const newColor = editPanel.dataset.selectedColor || cat.color;
+      const allCats = getCats();
+      const idx2 = allCats.findIndex(c => c.id === cat.id);
+      if (idx2 !== -1) {
+        allCats[idx2].name = newName;
+        allCats[idx2].color = newColor;
+      }
+      S.cats = allCats;
+      await saveData();
+      renderCatsSettings();
+    });
+
+    list.appendChild(wrapper);
   });
 }
 
@@ -2234,16 +2349,37 @@ async function showBriefing() {
 
   // Weather (Cannes)
   try {
-    const wresp = await fetch('https://api.open-meteo.com/v1/forecast?latitude=43.5513&longitude=7.0128&current_weather=true&daily=precipitation_sum&timezone=Europe/Paris&forecast_days=1', { signal: AbortSignal.timeout(5000) });
+    const wresp = await fetch('https://api.open-meteo.com/v1/forecast?latitude=43.5513&longitude=7.0128&current_weather=true&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=Europe/Paris&forecast_days=7', { signal: AbortSignal.timeout(5000) });
     if (wresp.ok) {
       const wdata = await wresp.json();
       const cw = wdata.current_weather;
       const wcode = cw.weathercode;
       const wEmoji = wcode <= 1 ? '☀️' : wcode <= 3 ? '⛅' : wcode <= 67 ? '🌧️' : wcode <= 77 ? '❄️' : '🌩️';
+      const wCodeEmoji = c => c <= 1 ? '☀️' : c <= 3 ? '⛅' : c <= 67 ? '🌧️' : c <= 77 ? '❄️' : '🌩️';
+      const dayNames = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+      let pillsHtml = '';
+      if (wdata.daily && wdata.daily.time) {
+        wdata.daily.time.forEach((dt, i) => {
+          const d = new Date(dt);
+          const dayLabel = i === 0 ? 'Auj.' : dayNames[d.getDay()];
+          const code = wdata.daily.weathercode[i];
+          const tmax = Math.round(wdata.daily.temperature_2m_max[i]);
+          pillsHtml += `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 8px;border-radius:10px;background:var(--card);min-width:44px">
+            <div style="font-size:11px;color:var(--text2);font-weight:600">${dayLabel}</div>
+            <div style="font-size:18px">${wCodeEmoji(code)}</div>
+            <div style="font-size:12px;font-weight:700">${tmax}°</div>
+          </div>`;
+        });
+      }
       html += `<div style="margin-bottom:12px;padding:12px;background:var(--bg);border-radius:10px">
-        <div style="font-size:32px">${wEmoji}</div>
-        <div style="font-weight:700;font-size:18px">${Math.round(cw.temperature)}°C à Cannes</div>
-        <div style="font-size:13px;color:var(--text2)">Vent ${cw.windspeed} km/h</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <div style="font-size:28px">${wEmoji}</div>
+          <div>
+            <div style="font-weight:700;font-size:16px">${Math.round(cw.temperature)}°C à Cannes</div>
+            <div style="font-size:12px;color:var(--text2)">Vent ${cw.windspeed} km/h</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:4px;overflow-x:auto;padding-bottom:4px">${pillsHtml}</div>
       </div>`;
     }
   } catch(e) { /* offline */ }
@@ -2802,14 +2938,32 @@ function haptic(pattern) {
 function exportJournalPdf() {
   const entries = Object.entries(S.journal).sort((a,b) => a[0].localeCompare(b[0]));
   if (!entries.length) { toast('Aucune entrée journal'); return; }
-  let body = '<style>body{font-family:-apple-system,sans-serif;max-width:600px;margin:auto;padding:32px;color:#1C1C1E}h1{color:#8B5CF6}h2{margin-top:24px;color:#1C1C1E}p{line-height:1.6;color:#3C3C3E}.mood{font-size:24px}</style>';
-  body += '<h1>Journal KAT 🐱</h1>';
+  let body = `<style>
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .entry { page-break-after: always; } .entry:last-child { page-break-after: avoid; } }
+    body { font-family: -apple-system, sans-serif; max-width: 600px; margin: auto; padding: 32px; color: #1C1C1E; }
+    .header { display: flex; align-items: center; gap: 10px; border-bottom: 2px solid #8B5CF6; padding-bottom: 16px; margin-bottom: 32px; }
+    .header h1 { color: #8B5CF6; margin: 0; font-size: 28px; }
+    .entry { margin-bottom: 32px; padding-bottom: 24px; }
+    h2 { margin-top: 0; color: #1C1C1E; font-size: 18px; text-transform: capitalize; }
+    p { line-height: 1.7; color: #3C3C3E; white-space: pre-wrap; }
+    .mood { font-size: 28px; margin-bottom: 8px; }
+    .photos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .photos img { width: calc(33% - 6px); min-width: 120px; border-radius: 8px; object-fit: cover; aspect-ratio: 1; }
+  </style>`;
+  body += '<div class="header"><span style="font-size:36px">🐱</span><h1>Journal KAT</h1></div>';
   for (const [dk, entry] of entries) {
     const d = parseDate(dk);
     const dateStr = d.toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
-    body += `<h2>${escHtml(dateStr)}</h2>`;
+    body += `<div class="entry"><h2>${escHtml(dateStr)}</h2>`;
     if (entry.mood) body += `<div class="mood">${escHtml(entry.mood)}</div>`;
-    if (entry.text) body += `<p>${escHtml(entry.text).replace(/\n/g,'<br>')}</p>`;
+    if (entry.text) body += `<p>${escHtml(entry.text)}</p>`;
+    const photos = entry.photos || [];
+    if (photos.length) {
+      body += '<div class="photos">';
+      photos.forEach(src => { body += `<img src="${src}" alt="photo">`; });
+      body += '</div>';
+    }
+    body += '</div>';
   }
   const win = window.open('', '_blank');
   if (win) {
@@ -2843,6 +2997,46 @@ function checkAutoBriefing() {
   }
 }
 
+// ═══ SYNC DEPUIS APPLE CALENDAR ═══
+async function syncFromAppleCalendar() {
+  toast('⏳ Sync en cours…', 4000);
+  try {
+    const resp = await fetch('/api/sync-from-icloud', { signal: AbortSignal.timeout(15000) });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    if (!data.ok || !data.events) throw new Error(data.error || 'Réponse invalide');
+    let added = 0;
+    for (const ev of data.events) {
+      if (!ev.date || !ev.title) continue;
+      const dk = ev.date;
+      ensureEvents(dk);
+      const exists = S.events[dk].find(e => e.id === ev.id);
+      if (!exists) {
+        S.events[dk].push({
+          id: ev.id || uid(),
+          title: ev.title,
+          time: ev.time || '',
+          duration: ev.duration || 60,
+          catId: getCats()[0].id,
+          location: ev.location || '',
+          notes: ev.notes || '',
+          recurrence: 'none',
+          reminders: [],
+          color: null,
+          doneInstances: {},
+        });
+        added++;
+      }
+    }
+    await saveData();
+    render();
+    toast(`✅ Sync terminée — ${added} event(s) ajouté(s)`);
+  } catch(e) {
+    console.error('syncFromAppleCalendar:', e.message);
+    toast('❌ Sync échouée : ' + e.message, 4000);
+  }
+}
+
 // ═══ BOOT ═══
 async function boot() {
   await loadAll();
@@ -2856,6 +3050,56 @@ async function boot() {
 }
 
 boot();
+
+// ═══ ICONE IOS PNG 180x180 ═══
+(function generateCatIcon() {
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 180; canvas.height = 180;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    // Fond violet arrondi
+    ctx.fillStyle = '#8B5CF6';
+    ctx.beginPath(); ctx.roundRect(0,0,180,180,36); ctx.fill();
+    // Oreilles
+    ctx.fillStyle = '#A78BFA';
+    ctx.beginPath(); ctx.moveTo(32,76); ctx.lineTo(22,28); ctx.lineTo(65,60); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(148,76); ctx.lineTo(158,28); ctx.lineTo(115,60); ctx.fill();
+    // Inner ears
+    ctx.fillStyle = '#DDD6FE';
+    ctx.beginPath(); ctx.moveTo(36,72); ctx.lineTo(27,36); ctx.lineTo(62,62); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(144,72); ctx.lineTo(153,36); ctx.lineTo(118,62); ctx.fill();
+    // Visage blanc
+    ctx.fillStyle = 'white';
+    ctx.beginPath(); ctx.arc(90,108,54,0,Math.PI*2); ctx.fill();
+    // Yeux
+    ctx.fillStyle = '#1a0533';
+    ctx.beginPath(); ctx.ellipse(68,98,10,12,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(112,98,10,12,0,0,Math.PI*2); ctx.fill();
+    // Reflets yeux
+    ctx.fillStyle = 'white';
+    ctx.beginPath(); ctx.arc(72,93,3,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(116,93,3,0,Math.PI*2); ctx.fill();
+    // Nez
+    ctx.fillStyle = '#F9A8D4';
+    ctx.beginPath(); ctx.ellipse(90,117,5,4,0,0,Math.PI*2); ctx.fill();
+    // Bouche
+    ctx.strokeStyle = '#E9D5FF'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(82,124); ctx.quadraticCurveTo(90,132,98,124); ctx.stroke();
+    // Moustaches
+    ctx.strokeStyle = '#DDD6FE'; ctx.lineWidth = 2; ctx.globalAlpha = 0.7;
+    ctx.beginPath(); ctx.moveTo(25,110); ctx.lineTo(68,112); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(25,120); ctx.lineTo(68,118); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(112,112); ctx.lineTo(155,110); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(112,118); ctx.lineTo(155,120); ctx.stroke();
+    ctx.globalAlpha = 1;
+    const iconUrl = canvas.toDataURL('image/png');
+    const link = document.querySelector('link[rel="apple-touch-icon"]') || document.createElement('link');
+    link.rel = 'apple-touch-icon';
+    link.href = iconUrl;
+    document.head.appendChild(link);
+  } catch(e) { /* canvas non supporté */ }
+})();
 </script>
 </body>
 </html>
