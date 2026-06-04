@@ -706,11 +706,14 @@ input, textarea { font-family: inherit; }
     <div class="section-title">Notifications</div>
     <div style="background:var(--card);border-radius:var(--radius-sm);overflow:hidden">
       <div class="settings-row">
-        <span class="settings-row-label">Rappels et alertes</span>
-        <button class="btn-ghost" id="notif-btn" onclick="requestNotifPermission()">Activer</button>
+        <div>
+          <div class="settings-row-label">Rappels et alertes</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px" id="notif-sub-label">Chargement…</div>
+        </div>
+        <div class="toggle" id="notif-toggle" onclick="toggleNotifications()"></div>
       </div>
-      <div class="settings-row" id="notif-status-row" style="display:none">
-        <span class="settings-row-label" style="color:var(--text2);font-size:13px" id="notif-status-label"></span>
+      <div class="settings-row" id="notif-status-row" style="display:none;border-top:.5px solid var(--border)">
+        <span style="font-size:12px;color:var(--text2);line-height:1.5" id="notif-status-label"></span>
       </div>
     </div>
   </div>
@@ -2410,53 +2413,89 @@ function openSettings() {
 }
 
 function updateNotifBtn() {
-  const btn = document.getElementById('notif-btn');
+  const toggle = document.getElementById('notif-toggle');
+  const subLbl = document.getElementById('notif-sub-label');
   const statusRow = document.getElementById('notif-status-row');
   const statusLbl = document.getElementById('notif-status-label');
-  if (!btn) return;
-  if (!('Notification' in window)) {
-    // Detect iOS version for helpful message
-    const iosMatch = navigator.userAgent.match(/OS (\d+)_(\d+)/);
-    const iosVersion = iosMatch ? parseFloat(iosMatch[1] + '.' + iosMatch[2]) : null;
-    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-    const isInstalledPWA = window.navigator.standalone === true;
+  if (!toggle) return;
+  const notifEnabled = S.settings.notifEnabled !== false; // default true
+  const iosMatch = navigator.userAgent.match(/OS (\d+)_(\d+)/);
+  const iosVersion = iosMatch ? parseFloat(iosMatch[1] + '.' + iosMatch[2]) : null;
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const isInstalledPWA = window.navigator.standalone === true;
 
-    let msg = 'Non supporté';
-    if (isIOS && iosVersion && iosVersion < 16.4) {
-      msg = `iOS ${iosVersion} — nécessite iOS 16.4+`;
-    } else if (isIOS && !isInstalledPWA) {
-      msg = 'Installer sur écran d\'accueil d\'abord';
-    }
-    btn.textContent = msg;
-    btn.style.fontSize = '11px';
-    btn.disabled = true;
-
-    const statusRow = document.getElementById('notif-status-row');
-    const statusLbl = document.getElementById('notif-status-label');
-    if (statusRow && isIOS && iosVersion) {
-      statusRow.style.display = '';
-      if (iosVersion < 16.4) {
-        statusLbl.textContent = `⚠️ iOS ${iosVersion} détecté — les notifications PWA nécessitent iOS 16.4 minimum.`;
-        statusLbl.style.color = 'var(--red)';
-      } else if (!isInstalledPWA) {
-        statusLbl.textContent = '📲 Pour activer les notifications, installe KAT sur l\'écran d\'accueil (Safari → Partager → Sur l\'écran d\'accueil), puis ouvre-la depuis l\'icône.';
-        statusLbl.style.color = 'var(--orange)';
-      }
-    }
+  if (!('Notification' in window) || (isIOS && iosVersion && iosVersion < 16.4)) {
+    toggle.classList.remove('on');
+    toggle.style.opacity = '0.4';
+    toggle.style.pointerEvents = 'none';
+    if (subLbl) subLbl.textContent = isIOS && iosVersion ? `iOS ${iosVersion} — nécessite iOS 16.4+` : 'Non supporté';
     return;
   }
-  if (Notification.permission === 'granted') {
-    btn.textContent = '✅ Activées';
-    btn.style.color = 'var(--green)';
-    statusRow.style.display = '';
-    statusLbl.textContent = 'Les rappels et alertes sont actifs.';
-  } else if (Notification.permission === 'denied') {
-    btn.textContent = '❌ Bloquées';
-    btn.style.color = 'var(--red)';
-    statusRow.style.display = '';
-    statusLbl.textContent = 'Autorise les notifications dans Réglages iPhone → Safari → Notifications.';
+  if (isIOS && !isInstalledPWA) {
+    toggle.classList.remove('on');
+    toggle.style.opacity = '0.4';
+    toggle.style.pointerEvents = 'none';
+    if (subLbl) subLbl.textContent = '📲 Installe KAT sur l\'écran d\'accueil pour activer';
+    return;
+  }
+  if (Notification.permission === 'denied') {
+    toggle.classList.remove('on');
+    toggle.style.opacity = '0.4';
+    toggle.style.pointerEvents = 'none';
+    if (subLbl) subLbl.textContent = '❌ Bloquées — va dans Réglages iPhone → KAT → Notifications';
+    if (statusRow) { statusRow.style.display = ''; statusLbl.textContent = 'Pour réactiver : Réglages → Applications → KAT → Notifications → activer.'; }
+    return;
+  }
+  if (Notification.permission === 'granted' && notifEnabled) {
+    toggle.classList.add('on');
+    toggle.style.opacity = ''; toggle.style.pointerEvents = '';
+    if (subLbl) subLbl.textContent = '✅ Actives sur cet appareil';
+    if (statusRow) statusRow.style.display = 'none';
   } else {
-    btn.textContent = 'Activer';
+    toggle.classList.remove('on');
+    toggle.style.opacity = ''; toggle.style.pointerEvents = '';
+    if (subLbl) subLbl.textContent = 'Désactivées — tap pour activer';
+    if (statusRow) statusRow.style.display = 'none';
+  }
+}
+
+// Toggle notifications on/off
+async function toggleNotifications() {
+  const notifEnabled = S.settings.notifEnabled !== false;
+  if (!('Notification' in window)) return;
+  
+  if (Notification.permission !== 'granted') {
+    // Not yet granted — request permission
+    await requestNotifPermission();
+    return;
+  }
+  
+  if (notifEnabled) {
+    // Turn OFF — unsubscribe from Web Push + disable local
+    S.settings.notifEnabled = false;
+    await saveData();
+    // Unsubscribe from push
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await sub.unsubscribe();
+        await fetch('/api/push-unsubscribe', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ endpoint: sub.endpoint })
+        }).catch(()=>{});
+      }
+    } catch(e) {}
+    updateNotifBtn();
+    toast('🔕 Notifications désactivées');
+  } else {
+    // Turn ON — re-subscribe
+    S.settings.notifEnabled = true;
+    await saveData();
+    const reg = await navigator.serviceWorker.ready;
+    await subscribeToPush(reg);
+    updateNotifBtn();
+    toast('🔔 Notifications activées !');
   }
 }
 
