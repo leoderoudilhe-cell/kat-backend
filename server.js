@@ -68,11 +68,12 @@ async function flush() {
   if (_flushing||!_dirty||!GITHUB_TOKEN) return;
   _flushing=true;
   try {
-    const r = await ghRequest('PUT',`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_FILE}`,{
+    const body = {
       message:'KAT sync',
       content:Buffer.from(JSON.stringify(_cache,null,2)).toString('base64'),
-      sha:_sha
-    });
+    };
+    if (_sha) body.sha = _sha; // omit sha for new file creation
+    const r = await ghRequest('PUT',`/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_FILE}`, body);
     if (r&&(r.s===200||r.s===201)){_sha=r.b.content?.sha||_sha;_dirty=false;console.log('✅ Flushed to GitHub');}
     else console.warn('GH flush failed:',r?.s);
   } catch(e){ console.warn('GH flush error:',e.message); }
