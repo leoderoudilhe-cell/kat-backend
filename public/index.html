@@ -3504,7 +3504,16 @@ async function boot() {
   await loadAll();
   initDark();
   render();
-  syncFromServer().then(() => render()).catch(() => {});
+  // Sync bidirectionnel au démarrage :
+  // 1. Pull depuis serveur (récupère ce que les autres appareils ont poussé)
+  // 2. Push local vers serveur (envoie ce que CE device a en IDB mais pas encore sur serveur)
+  syncFromServer()
+    .then(async () => {
+      render();
+      // Après pull, on pousse les données locales — couvre le cas "ajouté avant mise à jour sync"
+      await pushToServer();
+    })
+    .catch(() => pushToServer()); // offline → push quand même pour quand ça reprend
   // Auto-sync Apple Calendar -> KAT au demarrage puis toutes les 5 min
   autoSyncFromApple();
   setInterval(autoSyncFromApple, 5 * 60 * 1000);
