@@ -2511,32 +2511,56 @@ async function toggleNotifications() {
     S.settings.notifEnabled = true;
     await saveData();
     updateNotifBtn();
-    toast('🔔 Notifications activées !');
+    toast('🔔 Activation en cours…');
     scheduleDailyReminder();
-    // Subscribe Web Push in background
-    navigator.serviceWorker?.ready.then(reg => subscribeToPush(reg)).catch(()=>{});
+    // Subscribe Web Push — wait for result and show status
+    try {
+      const reg = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise((_,r) => setTimeout(() => r(new Error('SW timeout')), 8000))
+      ]);
+      await subscribeToPush(reg);
+    } catch(e) {
+      toast('⚠️ Web Push non disponible: ' + e.message.slice(0,40));
+    }
   }
 }
 
 async function subscribeToPush(reg) {
   try {
     // Get VAPID public key from server
-    const resp = await fetch('/api/push-key', { signal: AbortSignal.timeout(10000) });
-    const { publicKey } = await resp.json();
+    const resp = await fetch('/api/push-key', { signal: AbortSignal.timeout(15000) });
+    if (!resp.ok) throw new Error('push-key HTTP ' + resp.status);
+    const data = await resp.json();
+    if (!data.publicKey) throw new Error('No public key');
+
+    // Subscribe via push manager
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey)
+      applicationServerKey: urlBase64ToUint8Array(data.publicKey)
     });
+
     // Send subscription to server
-    await fetch('/api/push-subscribe', {
+    const r2 = await fetch('/api/push-subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(sub.toJSON())
+      body: JSON.stringify(sub.toJSON()),
+      signal: AbortSignal.timeout(10000)
     });
+    if (!r2.ok) throw new Error('subscribe HTTP ' + r2.status);
+    toast('📲 Souscription Web Push OK — notifs sur écran verrouillé activées');
     console.log('✅ Push subscription saved');
     return true;
   } catch(e) {
     console.warn('Push subscription failed:', e.message);
+    // Show helpful error
+    if (e.message.includes('permission')) {
+      toast('❌ Permission refusée pour Web Push');
+    } else if (e.message.includes('network') || e.message.includes('fetch') || e.name === 'AbortError') {
+      toast('⚠️ Connexion au serveur impossible — réessaie dans 30s');
+    } else {
+      toast('⚠️ Web Push: ' + e.message.slice(0, 50));
+    }
     return false;
   }
 }
