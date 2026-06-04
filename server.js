@@ -6,6 +6,15 @@ const cors    = require('cors');
 const fs      = require('fs');
 const path    = require('path');
 const https   = require('https');
+const webpush = require('web-push');
+
+// VAPID keys for Web Push
+const VAPID_PUBLIC  = process.env.VAPID_PUBLIC  || 'BFj2fRxIbJPviw6ek-ePKX5tNIqhObeco3N4AcMtThMNgRaJDo7nBvV59U7FPsSiyjcsuWxUhO-KYW68wv5z5kA';
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE || 'nxAwS9GO872i7LOt8W-ScK37y9HiWuiePmd762SKwXc';
+webpush.setVapidDetails('mailto:kat@app.com', VAPID_PUBLIC, VAPID_PRIVATE);
+
+// In-memory push subscriptions (persist in data file)
+let _pushSubs = [];
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -28,14 +37,20 @@ const DEFAULT = {
 
 function loadData() {
   try {
-    if (fs.existsSync(DATA_FILE))
-      return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    if (fs.existsSync(DATA_FILE)) {
+      const d = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+      _pushSubs = d._pushSubs || [];
+      return d;
+    }
   } catch(e) { console.warn('load error:', e.message); }
   return JSON.parse(JSON.stringify(DEFAULT));
 }
 
 function saveData(d) {
-  try { fs.writeFileSync(DATA_FILE, JSON.stringify(d, null, 2)); }
+  try {
+    d._pushSubs = _pushSubs; // persist subscriptions
+    fs.writeFileSync(DATA_FILE, JSON.stringify(d, null, 2));
+  }
   catch(e) { console.warn('save error:', e.message); }
   // Also update public/kat.ics on GitHub so subscription URL is always fresh
   updateGithubICS(d.events || {}).catch(() => {});
@@ -209,7 +224,11 @@ app.post('/api/data', (req, res) => {
         if (!newIds.has(id)) deletedIds.push(id);
       }
     }
-    if (b.events  !== undefined) d.events  = b.events;
+    if (b.events  !== undefined) {
+      d.events = b.events;
+      // Schedule event reminders via Web Push
+      setTimeout(() => scheduleEventReminders(d.events), 100);
+    }
     if (b.todos   !== undefined) d.todos   = b.todos;
     if (b.cats    !== undefined) d.cats    = b.cats;
     // Ne jamais écraser des données existantes avec une liste vide
@@ -430,6 +449,121 @@ app.get('/api/sync-from-icloud', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// ═══ WEB PUSH ENDPOINTS ═══
+
+// Return VAPID public key (frontend needs it to subscribe)
+app.get('/api/push-key', (_, res) => {
+  res.json({ publicKey: VAPID_PUBLIC });
+});
+
+// Save push subscription from a device
+app.post('/api/push-subscribe', (req, res) => {
+  const sub = req.body;
+  if (!sub || !sub.endpoint) return res.status(400).json({ error: 'Invalid subscription' });
+  // Remove any existing sub with same endpoint, then add new
+  _pushSubs = _pushSubs.filter(s => s.endpoint !== sub.endpoint);
+  _pushSubs.push({ ...sub, ts: Date.now() });
+  saveData(loadData()); // persist
+  console.log(`📲 Push subscription saved (total: ${_pushSubs.length})`);
+  res.json({ ok: true });
+});
+
+// Remove push subscription (unsubscribe)
+app.post('/api/push-unsubscribe', (req, res) => {
+  const { endpoint } = req.body || {};
+  _pushSubs = _pushSubs.filter(s => s.endpoint !== endpoint);
+  saveData(loadData());
+  res.json({ ok: true });
+});
+
+// Send a push notification to all subscriptions
+async function sendPushToAll(title, body, opts = {}) {
+  const payload = JSON.stringify({ title, body, tag: opts.tag || 'kat', persist: opts.persist });
+  const dead = [];
+  for (const sub of [..._pushSubs]) {
+    try {
+      await webpush.sendNotification(sub, payload);
+    } catch(e) {
+      if (e.statusCode === 404 || e.statusCode === 410) dead.push(sub.endpoint);
+      else console.warn('Push failed:', e.message);
+    }
+  }
+  // Remove dead subscriptions
+  if (dead.length) {
+    _pushSubs = _pushSubs.filter(s => !dead.includes(s.endpoint));
+    saveData(loadData());
+  }
+}
+
+// ═══ SCHEDULED PUSH REMINDERS ═══
+function scheduleDailyJournalReminder() {
+  const now = new Date();
+  const target = new Date();
+  target.setHours(18, 0, 0, 0);
+  if (target <= now) target.setDate(target.getDate() + 1);
+  const delay = target.getTime() - now.getTime();
+
+  setTimeout(async () => {
+    // Check if any device already filled journal today
+    const d = loadData();
+    const today = target.toISOString().slice(0, 10);
+    const filled = d.journal && d.journal[today] && (d.journal[today].text || (d.journal[today].photos && d.journal[today].photos.length));
+    if (!filled) {
+      console.log('📢 Sending 18h journal reminder push...');
+      await sendPushToAll(
+        'KAT 🐱 — Ta note du jour !',
+        "Tu n\'as pas encore rempli ton journal ni posté ta photo du jour 📸",
+        { tag: 'journal-reminder', persist: true }
+      );
+      // Repeat every 30 min if still not filled
+      let repeat = setInterval(async () => {
+        const d2 = loadData();
+        const todayNow = new Date().toISOString().slice(0, 10);
+        const filledNow = d2.journal && d2.journal[todayNow] && (d2.journal[todayNow].text || (d2.journal[todayNow].photos && d2.journal[todayNow].photos.length));
+        if (filledNow) { clearInterval(repeat); return; }
+        await sendPushToAll('KAT 🐱', "N\'oublie pas ton journal ! 📔", { tag: 'journal-reminder' });
+      }, 30 * 60 * 1000);
+    }
+    // Schedule next day
+    scheduleDailyJournalReminder();
+  }, delay);
+  console.log(`📅 Journal reminder scheduled in ${Math.round(delay/60000)} minutes`);
+}
+
+// ═══ EVENT REMINDERS VIA WEB PUSH ═══
+// Called when events are updated — schedule push for each reminder
+let _scheduledPushes = {};
+function scheduleEventReminders(events) {
+  // Clear old scheduled pushes
+  Object.values(_scheduledPushes).forEach(t => clearTimeout(t));
+  _scheduledPushes = {};
+
+  const now = Date.now();
+  for (const [dk, evs] of Object.entries(events || {})) {
+    if (!Array.isArray(evs)) continue;
+    for (const ev of evs) {
+      if (!ev.title || !ev.time || !ev.rems) continue;
+      const [y,mo,d] = dk.split('-').map(Number);
+      const [h,mi] = ev.time.split(':').map(Number);
+      const evTime = new Date(y, mo-1, d, h, mi, 0).getTime();
+      (ev.rems || []).forEach(remMin => {
+        if (!remMin) return;
+        const fireTime = evTime - remMin * 60000;
+        const delay = fireTime - now;
+        if (delay < 0 || delay > 48 * 3600000) return; // skip past + far future
+        const key = `${ev.id}_${remMin}`;
+        _scheduledPushes[key] = setTimeout(async () => {
+          await sendPushToAll(
+            `${ev.title}`,
+            `${remMin > 0 ? 'Dans ' + remMin + ' min' : 'Maintenant !'}${ev.location ? '\n📍 ' + ev.location : ''}`,
+            { tag: key }
+          );
+        }, delay);
+      });
+    }
+  }
+}
 
 // Delete a specific event from iCloud CalDAV
 app.post('/api/delete-event', async (req, res) => {

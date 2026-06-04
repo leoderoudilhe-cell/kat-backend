@@ -2424,13 +2424,50 @@ function updateNotifBtn() {
   }
 }
 
+async function subscribeToPush(reg) {
+  try {
+    // Get VAPID public key from server
+    const resp = await fetch('/api/push-key', { signal: AbortSignal.timeout(10000) });
+    const { publicKey } = await resp.json();
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey)
+    });
+    // Send subscription to server
+    await fetch('/api/push-subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sub.toJSON())
+    });
+    console.log('✅ Push subscription saved');
+    return true;
+  } catch(e) {
+    console.warn('Push subscription failed:', e.message);
+    return false;
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
 async function requestNotifPermission() {
   if (!('Notification' in window)) {
     toast('⚠️ Notifications non supportées sur ce navigateur');
     return;
   }
   if (Notification.permission === 'granted') {
-    toast('✅ Notifications déjà activées !');
+    // Re-subscribe to push in case subscription expired
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      await subscribeToPush(reg);
+      toast('✅ Notifications actives et synchronisées');
+    } catch(e) {}
     return;
   }
   // Must be installed on home screen + opened from there for iOS
@@ -2439,6 +2476,10 @@ async function requestNotifPermission() {
   if (perm === 'granted') {
     toast('🔔 Notifications activées !');
     scheduleDailyReminder();
+    // Subscribe to Web Push for background notifications
+    const reg = await navigator.serviceWorker.ready;
+    const ok = await subscribeToPush(reg);
+    if (ok) toast('✅ Notifications activées sur cet appareil');
   } else if (perm === 'denied') {
     toast('❌ Bloquées — autorise dans Réglages iPhone');
   }
