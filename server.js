@@ -344,6 +344,8 @@ app.post('/api/data', (req, res) => {
         deletedSnapshot.forEach(id => deleteFromiCloud(id).catch(() => {}));
         if (deletedSnapshot.length) console.log(`🗑️ iCloud delete: ${deletedSnapshot.join(', ')}`);
       }, 3000);
+      // Re-schedule all event reminders with updated events
+      setTimeout(() => scheduleEventReminders(d.events), 500);
     }
     res.json({ ok: true });
   } catch(e) {
@@ -586,8 +588,13 @@ async function sendPushToAll(title, body, opts = {}) {
 // ═══ SCHEDULED PUSH REMINDERS ═══
 function scheduleDailyJournalReminder() {
   const now = new Date();
-  const target = new Date();
-  target.setHours(18, 0, 0, 0);
+  // 18h Paris time = 16h UTC (summer) or 17h UTC (winter)
+  const nowDate = new Date();
+  const isSummer = (nowDate.getMonth() + 1) >= 4 && (nowDate.getMonth() + 1) <= 10;
+  const parisOffset = isSummer ? 2 : 1;
+  const target18hUTC = new Date();
+  target18hUTC.setUTCHours(18 - parisOffset, 0, 0, 0);
+  const target = target18hUTC;
   if (target <= now) target.setDate(target.getDate() + 1);
   const delay = target.getTime() - now.getTime();
 
@@ -621,35 +628,50 @@ function scheduleDailyJournalReminder() {
 // ═══ EVENT REMINDERS VIA WEB PUSH ═══
 // Called when events are updated — schedule push for each reminder
 let _scheduledPushes = {};
+function parisToUTC(y, mo, d, h, mi) {
+  const isSummer = mo >= 4 && mo <= 10;
+  const offsetH = isSummer ? 2 : 1;
+  return Date.UTC(y, mo-1, d, h - offsetH, mi, 0);
+}
+
 function scheduleEventReminders(events) {
-  // Clear old scheduled pushes
   Object.values(_scheduledPushes).forEach(t => clearTimeout(t));
   _scheduledPushes = {};
-
   const now = Date.now();
+  let scheduled = 0;
+
   for (const [dk, evs] of Object.entries(events || {})) {
     if (!Array.isArray(evs)) continue;
     for (const ev of evs) {
-      if (!ev.title || !ev.time || !ev.rems) continue;
+      if (!ev.title || !ev.time) continue;
+      // Support both field names: reminders (frontend) and rems (legacy)
+      const rems = ev.reminders || ev.rems || [];
+      if (!rems.length) continue;
+
       const [y,mo,d] = dk.split('-').map(Number);
       const [h,mi] = ev.time.split(':').map(Number);
-      const evTime = new Date(y, mo-1, d, h, mi, 0).getTime();
-      (ev.rems || []).forEach(remMin => {
-        if (!remMin) return;
-        const fireTime = evTime - remMin * 60000;
+      // Convert Paris local time to UTC for correct scheduling
+      const evTimeUTC = parisToUTC(y, mo, d, h, mi);
+
+      rems.forEach(remMin => {
+        const fireTime = evTimeUTC - (remMin || 0) * 60000;
         const delay = fireTime - now;
-        if (delay < 0 || delay > 48 * 3600000) return; // skip past + far future
+        if (delay < -60000 || delay > 48 * 3600000) return;
         const key = `${ev.id}_${remMin}`;
         _scheduledPushes[key] = setTimeout(async () => {
+          const msg = remMin > 0 ? `Dans ${remMin} min` : "C'est maintenant !";
           await sendPushToAll(
-            `${ev.title}`,
-            `${remMin > 0 ? 'Dans ' + remMin + ' min' : 'Maintenant !'}${ev.location ? '\n📍 ' + ev.location : ''}`,
-            { tag: key }
+            `⏰ ${ev.title}`,
+            `${msg}${ev.time ? ' · ' + ev.time : ''}${ev.location ? '\n📍 ' + ev.location : ''}`,
+            { tag: key, persist: true }
           );
-        }, delay);
+          console.log(`🔔 Notification sent: ${ev.title} (${msg})`);
+        }, Math.max(delay, 0));
+        scheduled++;
       });
     }
   }
+  console.log(`📅 scheduleEventReminders: ${scheduled} rappel(s) programmé(s)`);
 }
 
 // Test push — send immediate notification to all devices
