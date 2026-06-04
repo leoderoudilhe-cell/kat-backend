@@ -190,6 +190,10 @@ app.post('/api/data', (req, res) => {
         d.journal[k] = { mood: v.mood, text: v.text, date: v.date };
     }
     saveData(d);
+    // Sync to iCloud Calendar in background (non-blocking)
+    if (b.events !== undefined) {
+      syncToiCloud(d.events).catch(e => console.warn('iCloud sync failed:', e.message));
+    }
     res.json({ ok: true });
   } catch(e) {
     console.error('POST error:', e.message);
@@ -312,3 +316,102 @@ app.listen(PORT, () => {
   console.log(`🐱 KAT v3 on :${PORT}`);
   console.log(`📅 webcal://kat-app.onrender.com/ical`);
 });
+
+// ═══════════════════════════════════════════════
+//  iCLOUD CALDAV SYNC — Auto-sync to Apple Calendar
+// ═══════════════════════════════════════════════
+const ICLOUD_EMAIL    = process.env.ICLOUD_EMAIL;
+const ICLOUD_PASSWORD = process.env.ICLOUD_PASSWORD;
+const ICLOUD_CAL_URL  = process.env.ICLOUD_CAL_URL;
+
+function caldavRequest(method, url, body, extraHeaders = {}) {
+  return new Promise((resolve, reject) => {
+    if (!ICLOUD_EMAIL || !ICLOUD_PASSWORD || !ICLOUD_CAL_URL) return resolve(null);
+    const creds = Buffer.from(`${ICLOUD_EMAIL}:${ICLOUD_PASSWORD}`).toString('base64');
+    const parsedUrl = new URL(url);
+    const opts = {
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port || 443,
+      path: parsedUrl.pathname,
+      method,
+      headers: {
+        'Authorization': `Basic ${creds}`,
+        'Content-Type': 'text/calendar; charset=utf-8',
+        'User-Agent': 'KAT-App/3.0',
+        ...extraHeaders,
+      },
+    };
+    if (body) opts.headers['Content-Length'] = Buffer.byteLength(body);
+    const req = https.request(opts, res => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => resolve({ status: res.statusCode, body: d, headers: res.headers }));
+    });
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+function buildEventICS(dk, ev) {
+  const CRLF = '\r\n';
+  const esc = s => (s||'').replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\;').replace(/\n/g,'\\n');
+  const toD = (dateKey, t) => {
+    const [y,m,d] = dateKey.split('-').map(Number);
+    const [h,mi] = (t||'09:00').split(':').map(Number);
+    const p = x => String(x).padStart(2,'0');
+    return `${y}${p(m)}${p(d)}T${p(h)}${p(mi)}00`;
+  };
+  const dur = parseInt(ev.duration) || 60;
+  const [h,mi] = (ev.time||'09:00').split(':').map(Number);
+  const tm = h*60+mi+dur;
+  const endT = `${String(Math.floor(tm/60)).padStart(2,'0')}:${String(tm%60).padStart(2,'0')}`;
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//KAT App//KAT Agenda//FR',
+    'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT',
+    `UID:${ev.id}@kat-app`,
+    `DTSTAMP:${nowStamp()}`,
+    `DTSTART:${toD(dk, ev.time)}`,
+    `DTEND:${toD(dk, endT)}`,
+    `SUMMARY:${esc(ev.title)}`,
+  ];
+  if (ev.location) lines.push(`LOCATION:${esc(ev.location)}`);
+  if (ev.notes)    lines.push(`DESCRIPTION:${esc(ev.notes)}`);
+  const rm = {daily:'DAILY',weekly:'WEEKLY',monthly:'MONTHLY',yearly:'YEARLY'};
+  if (ev.recurrence && ev.recurrence !== 'none') lines.push(`RRULE:FREQ=${rm[ev.recurrence]}`);
+  lines.push('END:VEVENT', 'END:VCALENDAR', '');
+  return lines.join(CRLF);
+}
+
+async function syncToiCloud(events) {
+  if (!ICLOUD_CAL_URL) return;
+  const allEvs = [];
+  for (const [dk, evs] of Object.entries(events || {})) {
+    if (!Array.isArray(evs)) continue;
+    evs.forEach(ev => { if (ev.id && ev.title) allEvs.push({ dk, ev }); });
+  }
+  // Upsert all events
+  for (const { dk, ev } of allEvs) {
+    try {
+      const ics = buildEventICS(dk, ev);
+      const url = ICLOUD_CAL_URL + ev.id + '.ics';
+      const r = await caldavRequest('PUT', url, ics, { 'If-Match': '*' });
+      // If event doesn't exist yet (412 = precondition failed), create it
+      if (r && r.status === 412) {
+        await caldavRequest('PUT', url, ics, { 'If-None-Match': '*' });
+      }
+    } catch(e) { console.warn('iCloud sync error:', ev.id, e.message); }
+  }
+  console.log(`✅ iCloud sync: ${allEvs.length} event(s)`);
+}
+
+async function deleteFromiCloud(evId) {
+  if (!ICLOUD_CAL_URL || !evId) return;
+  try {
+    const url = ICLOUD_CAL_URL + evId + '.ics';
+    await caldavRequest('DELETE', url, null, {});
+  } catch(e) {}
+}
