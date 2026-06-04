@@ -2461,41 +2461,60 @@ function updateNotifBtn() {
 
 // Toggle notifications on/off
 async function toggleNotifications() {
-  const notifEnabled = S.settings.notifEnabled !== false;
-  if (!('Notification' in window)) return;
-  
-  if (Notification.permission !== 'granted') {
-    // Not yet granted — request permission
-    await requestNotifPermission();
+  if (!('Notification' in window)) {
+    toast('⚠️ Non supporté sur ce navigateur');
     return;
   }
-  
+
+  // If no permission yet — request it
+  if (Notification.permission === 'default') {
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      S.settings.notifEnabled = true;
+      await saveData();
+      updateNotifBtn();
+      toast('🔔 Notifications activées !');
+      // Subscribe to Web Push in background (non-blocking)
+      navigator.serviceWorker?.ready.then(reg => subscribeToPush(reg)).catch(()=>{});
+    } else {
+      toast('❌ Permission refusée');
+    }
+    return;
+  }
+
+  if (Notification.permission === 'denied') {
+    toast('❌ Bloquées — Réglages iPhone → KAT → Notifications');
+    return;
+  }
+
+  // Permission is granted — toggle on/off
+  const notifEnabled = S.settings.notifEnabled !== false;
   if (notifEnabled) {
-    // Turn OFF — unsubscribe from Web Push + disable local
+    // Turn OFF
     S.settings.notifEnabled = false;
     await saveData();
-    // Unsubscribe from push
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
+    updateNotifBtn();
+    toast('🔕 Notifications désactivées');
+    // Unsubscribe Web Push in background
+    navigator.serviceWorker?.ready.then(async reg => {
+      const sub = await reg.pushManager.getSubscription().catch(()=>null);
       if (sub) {
-        await sub.unsubscribe();
-        await fetch('/api/push-unsubscribe', {
-          method: 'POST', headers: {'Content-Type':'application/json'},
+        await sub.unsubscribe().catch(()=>{});
+        fetch('/api/push-unsubscribe', {
+          method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ endpoint: sub.endpoint })
         }).catch(()=>{});
       }
-    } catch(e) {}
-    updateNotifBtn();
-    toast('🔕 Notifications désactivées');
+    }).catch(()=>{});
   } else {
-    // Turn ON — re-subscribe
+    // Turn ON
     S.settings.notifEnabled = true;
     await saveData();
-    const reg = await navigator.serviceWorker.ready;
-    await subscribeToPush(reg);
     updateNotifBtn();
     toast('🔔 Notifications activées !');
+    scheduleDailyReminder();
+    // Subscribe Web Push in background
+    navigator.serviceWorker?.ready.then(reg => subscribeToPush(reg)).catch(()=>{});
   }
 }
 
@@ -2537,24 +2556,24 @@ async function requestNotifPermission() {
     return;
   }
   if (Notification.permission === 'granted') {
-    // Re-subscribe to push in case subscription expired
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      await subscribeToPush(reg);
-      toast('✅ Notifications actives et synchronisées');
-    } catch(e) {}
+    S.settings.notifEnabled = true;
+    await saveData();
+    updateNotifBtn();
+    toast('✅ Notifications actives');
+    // Re-subscribe Web Push in background
+    navigator.serviceWorker?.ready.then(reg => subscribeToPush(reg)).catch(()=>{});
     return;
   }
   // Must be installed on home screen + opened from there for iOS
   const perm = await Notification.requestPermission();
   updateNotifBtn();
   if (perm === 'granted') {
+    S.settings.notifEnabled = true;
+    await saveData();
+    updateNotifBtn();
     toast('🔔 Notifications activées !');
     scheduleDailyReminder();
-    // Subscribe to Web Push for background notifications
-    const reg = await navigator.serviceWorker.ready;
-    const ok = await subscribeToPush(reg);
-    if (ok) toast('✅ Notifications activées sur cet appareil');
+    navigator.serviceWorker?.ready.then(reg => subscribeToPush(reg)).catch(()=>{});
   } else if (perm === 'denied') {
     toast('❌ Bloquées — autorise dans Réglages iPhone');
   }
