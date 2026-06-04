@@ -203,6 +203,8 @@ app.post('/api/data', (req, res) => {
     if (b.events  !== undefined) d.events  = b.events;
     if (b.todos   !== undefined) d.todos   = b.todos;
     if (b.cats    !== undefined) d.cats    = b.cats;
+    if (b.courses !== undefined) d.courses = b.courses;
+    if (b.ptodos  !== undefined) d.ptodos  = b.ptodos;
     if (b.journal) {
       for (const [k, v] of Object.entries(b.journal))
         d.journal[k] = { mood: v.mood, text: v.text, date: v.date };

@@ -903,7 +903,9 @@ async function syncFromServer() {
     // Remote wins for events, todos, cats — only if non-empty (évite d'écraser si serveur redémarre vide)
     if (data.events && Object.keys(data.events).length > 0) S.events = data.events;
     if (data.todos  && Object.keys(data.todos).length  > 0) S.todos  = data.todos;
-    if (data.cats && data.cats.length) S.cats = data.cats;
+    if (data.cats   && data.cats.length)  S.cats   = data.cats;
+    if (data.courses && data.courses.items) S.courses = data.courses;
+    if (data.ptodos  && data.ptodos.length > 0) S.ptodos = data.ptodos;
     // Journal: merge (remote text wins, local photos preserved)
     if (data.journal) {
       for (const [k, entry] of Object.entries(data.journal)) {
@@ -936,7 +938,7 @@ async function pushToServer() {
     for (const [k, entry] of Object.entries(S.journal)) {
       journalClean[k] = { mood: entry.mood, text: entry.text, date: entry.date };
     }
-    const payload = { events: S.events, todos: S.todos, journal: journalClean, cats: S.cats };
+    const payload = { events: S.events, todos: S.todos, journal: journalClean, cats: S.cats, courses: S.courses, ptodos: S.ptodos };
     const resp = await fetch('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
