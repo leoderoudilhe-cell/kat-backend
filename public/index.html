@@ -938,6 +938,42 @@ function setSyncDot(state) {
     toast('⚠️ Sync en attente…', 3000);
   }
 }
+// Smart sync: returns true if data actually changed
+async function smartSyncFromServer() {
+  try {
+    const resp = await fetch('/api/data', { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) return false;
+    const data = await resp.json();
+    let changed = false;
+
+    if (data.events && Object.keys(data.events).length > 0) {
+      const serverStr = JSON.stringify(data.events);
+      const localStr  = JSON.stringify(S.events);
+      if (serverStr !== localStr) { S.events = data.events; changed = true; }
+    }
+    if (data.todos && Object.keys(data.todos).length > 0) {
+      const serverStr = JSON.stringify(data.todos);
+      if (serverStr !== JSON.stringify(S.todos)) { S.todos = data.todos; changed = true; }
+    }
+    if (data.courses?.items?.length > 0) {
+      const serverStr = JSON.stringify(data.courses);
+      if (serverStr !== JSON.stringify(S.courses)) { S.courses = data.courses; changed = true; }
+    }
+    if (data.ptodos?.length > 0) {
+      const serverStr = JSON.stringify(data.ptodos);
+      if (serverStr !== JSON.stringify(S.ptodos)) { S.ptodos = data.ptodos; changed = true; }
+    }
+    if (changed) {
+      await idbSet('kv','events',  S.events);
+      await idbSet('kv','todos',   S.todos);
+      await idbSet('kv','courses', S.courses);
+      await idbSet('kv','ptodos',  S.ptodos);
+      setSyncDot('ok');
+    }
+    return changed;
+  } catch(e) { return false; }
+}
+
 async function syncFromServer() {
   setSyncDot('syncing');
   try {
@@ -3614,7 +3650,24 @@ async function boot() {
     }
   };
   wakeAndSync();
-  // Auto-sync Apple Calendar -> KAT au demarrage puis toutes les 5 min
+
+  // Auto-pull depuis le serveur toutes les 30s quand app ouverte
+  // Utilise un timestamp "lastModified" pour ne re-render que si données changées
+  let _lastServerTs = 0;
+  setInterval(async () => {
+    try {
+      const r = await fetch('/api/ping', { signal: AbortSignal.timeout(5000) });
+      const { ts } = await r.json();
+      if (ts !== _lastServerTs) {
+        _lastServerTs = ts;
+        // Server has new data (someone else pushed) — pull it
+        const changed = await smartSyncFromServer();
+        if (changed) render();
+      }
+    } catch(e) { /* offline */ }
+  }, 30000);
+
+  // Auto-sync Apple Calendar -> KAT toutes les 5 min
   autoSyncFromApple();
   setInterval(autoSyncFromApple, 5 * 60 * 1000);
   scheduleDailyReminder();

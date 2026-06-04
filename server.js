@@ -281,7 +281,8 @@ app.get('/manifest.json', (_, res) => {
 });
 
 
-app.get('/api/ping', (_, res) => res.json({ ok: true, ts: Date.now() }));
+let _dataModifiedTs = Date.now();
+app.get('/api/ping', (_, res) => res.json({ ok: true, ts: _dataModifiedTs }));
 
 app.get('/api/data', (_, res) => {
   res.json(loadData());
