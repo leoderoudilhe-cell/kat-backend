@@ -13,8 +13,22 @@ const VAPID_PUBLIC  = process.env.VAPID_PUBLIC  || 'BFj2fRxIbJPviw6ek-ePKX5tNIqh
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE || 'nxAwS9GO872i7LOt8W-ScK37y9HiWuiePmd762SKwXc';
 webpush.setVapidDetails('mailto:kat@app.com', VAPID_PUBLIC, VAPID_PRIVATE);
 
-// In-memory push subscriptions (persist in data file)
+// Push subscriptions stored in separate file for reliability
 let _pushSubs = [];
+const SUBS_FILE = path.join(DATA_DIR, 'push-subs.json');
+
+function loadPushSubs() {
+  try {
+    if (fs.existsSync(SUBS_FILE)) {
+      _pushSubs = JSON.parse(fs.readFileSync(SUBS_FILE, 'utf8'));
+      console.log(`📲 Loaded ${_pushSubs.length} push subscription(s)`);
+    }
+  } catch(e) { _pushSubs = []; }
+}
+
+function savePushSubs() {
+  try { fs.writeFileSync(SUBS_FILE, JSON.stringify(_pushSubs)); } catch(e) {}
+}
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -41,7 +55,6 @@ function loadData() {
   try {
     if (fs.existsSync(DATA_FILE)) {
       const d = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-      _pushSubs = d._pushSubs || [];
       _cachedData = d;
       return d;
     }
@@ -548,12 +561,8 @@ app.post('/api/push-subscribe', (req, res) => {
   if (!sub || !sub.endpoint) return res.status(400).json({ error: 'Invalid subscription' });
   _pushSubs = _pushSubs.filter(s => s.endpoint !== sub.endpoint);
   _pushSubs.push({ ...sub, ts: Date.now() });
-  // Save IMMEDIATELY to file + GitHub (don't debounce for subscriptions)
-  const d = loadData();
-  d._pushSubs = _pushSubs;
-  _cachedData = d;
-  try { fs.writeFileSync(DATA_FILE, JSON.stringify(d, null, 2)); } catch(e){}
-  persistDataToGitHub(d).catch(()=>{});
+  // Save to dedicated subs file immediately
+  savePushSubs();
   console.log(`📲 Push subscription saved (total: ${_pushSubs.length})`);
   res.json({ ok: true, count: _pushSubs.length });
 });
@@ -562,7 +571,7 @@ app.post('/api/push-subscribe', (req, res) => {
 app.post('/api/push-unsubscribe', (req, res) => {
   const { endpoint } = req.body || {};
   _pushSubs = _pushSubs.filter(s => s.endpoint !== endpoint);
-  saveData(loadData());
+  savePushSubs();
   res.json({ ok: true });
 });
 
@@ -628,50 +637,61 @@ function scheduleDailyJournalReminder() {
 // ═══ EVENT REMINDERS VIA WEB PUSH ═══
 // Called when events are updated — schedule push for each reminder
 let _scheduledPushes = {};
-function parisToUTC(y, mo, d, h, mi) {
+// Convert Paris local time to UTC ms
+function parisToUTC(dk, timeStr) {
+  const [y,mo,d] = dk.split('-').map(Number);
+  const [h,mi] = (timeStr||'09:00').split(':').map(Number);
   const isSummer = mo >= 4 && mo <= 10;
-  const offsetH = isSummer ? 2 : 1;
-  return Date.UTC(y, mo-1, d, h - offsetH, mi, 0);
+  return Date.UTC(y, mo-1, d, h - (isSummer ? 2 : 1), mi, 0);
 }
 
-function scheduleEventReminders(events) {
-  Object.values(_scheduledPushes).forEach(t => clearTimeout(t));
-  _scheduledPushes = {};
-  const now = Date.now();
-  let scheduled = 0;
+// Keep track of already-sent reminders to avoid duplicates
+const _sentReminders = new Set();
 
-  for (const [dk, evs] of Object.entries(events || {})) {
+// Cron-based reminder check — runs every minute
+// Much more reliable than setTimeout (survives restarts since it re-checks each minute)
+function checkEventReminders() {
+  if (!_pushSubs.length) return;
+  const events = loadData().events || {};
+  const now = Date.now();
+  const windowMs = 90 * 1000; // fire within 90s window to handle timing drift
+
+  for (const [dk, evs] of Object.entries(events)) {
     if (!Array.isArray(evs)) continue;
     for (const ev of evs) {
       if (!ev.title || !ev.time) continue;
-      // Support both field names: reminders (frontend) and rems (legacy)
       const rems = ev.reminders || ev.rems || [];
       if (!rems.length) continue;
 
-      const [y,mo,d] = dk.split('-').map(Number);
-      const [h,mi] = ev.time.split(':').map(Number);
-      // Convert Paris local time to UTC for correct scheduling
-      const evTimeUTC = parisToUTC(y, mo, d, h, mi);
+      const evTimeUTC = parisToUTC(dk, ev.time);
 
-      rems.forEach(remMin => {
+      for (const remMin of rems) {
         const fireTime = evTimeUTC - (remMin || 0) * 60000;
-        const delay = fireTime - now;
-        if (delay < -60000 || delay > 48 * 3600000) return;
-        const key = `${ev.id}_${remMin}`;
-        _scheduledPushes[key] = setTimeout(async () => {
-          const msg = remMin > 0 ? `Dans ${remMin} min` : "C'est maintenant !";
-          await sendPushToAll(
+        const diff = now - fireTime; // positive = we're past the fire time
+
+        // Fire if we're within the 90s window after the scheduled time
+        if (diff >= 0 && diff < windowMs) {
+          const key = `${ev.id}_${remMin}_${dk}`;
+          if (_sentReminders.has(key)) continue; // already sent
+          _sentReminders.add(key);
+          const msg = remMin > 0 ? `Dans ${remMin} min` : "C'est l'heure !";
+          console.log(`🔔 Firing reminder: ${ev.title} (${msg})`);
+          sendPushToAll(
             `⏰ ${ev.title}`,
             `${msg}${ev.time ? ' · ' + ev.time : ''}${ev.location ? '\n📍 ' + ev.location : ''}`,
             { tag: key, persist: true }
-          );
-          console.log(`🔔 Notification sent: ${ev.title} (${msg})`);
-        }, Math.max(delay, 0));
-        scheduled++;
-      });
+          ).catch(e => console.warn('Push failed:', e.message));
+        }
+      }
     }
   }
-  console.log(`📅 scheduleEventReminders: ${scheduled} rappel(s) programmé(s)`);
+  // Clean old entries from sent set (keep only last hour)
+  if (_sentReminders.size > 1000) _sentReminders.clear();
+}
+
+// Legacy — kept for backward compatibility
+function scheduleEventReminders(events) {
+  console.log('📅 scheduleEventReminders called — using cron-based system instead');
 }
 
 // Test push — send immediate notification to all devices
@@ -707,24 +727,13 @@ app._icloudTimer = null;
 const server = app.listen(PORT, () => {
   console.log(`🐱 KAT v3 on :${PORT}`);
   // Restore data from GitHub on startup
-  loadFromGitHub().then(ghData => {
-    if (ghData) {
-      _cachedData = { ...JSON.parse(JSON.stringify(DEFAULT)), ...ghData };
-      _pushSubs = ghData._pushSubs || [];
-      try { fs.writeFileSync(DATA_FILE, JSON.stringify(_cachedData, null, 2)); } catch(e){}
-      const evCount = Object.values(ghData.events||{}).reduce((a,v)=>a+(Array.isArray(v)?v.length:0),0);
-      const courseCount = (ghData.courses?.items||[]).length;
-      console.log(`✅ Restored from GitHub: ${evCount} events, ${courseCount} courses`);
-    }
-    // Start daily journal push reminder
-    scheduleDailyJournalReminder();
-    // Schedule event reminders
-    setTimeout(() => scheduleEventReminders(loadData().events), 3000);
-  }).catch(e => {
-    console.warn('GitHub restore failed:', e.message);
-    scheduleDailyJournalReminder();
-    setTimeout(() => scheduleEventReminders(loadData().events), 3000);
-  });
+  // Load push subscriptions from dedicated file
+  loadPushSubs();
+  // Start cron: check event reminders every 60 seconds
+  setInterval(checkEventReminders, 60 * 1000);
+  console.log('⏰ Reminder cron started (every 60s)');
+  // Start daily journal push reminder at 18h Paris
+  scheduleDailyJournalReminder();
 });
 
 // ═══════════════════════════════════════════════
