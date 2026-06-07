@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="KAT">
-<meta name="theme-color" content="#8B5CF6">
+<meta name="theme-color" content="#F472B6">
 <title>KAT 🐱</title>
 <link rel="apple-touch-icon" href="/icon.svg">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -14,8 +14,8 @@
 <style>
 /* ═══ CSS VARIABLES & RESET ═══ */
 :root {
-  --kat: #8B5CF6;
-  --kat2: #EC4899;
+  --kat: #F472B6;
+  --kat2: #DB2777;
   --bg: #F2F2F7;
   --card: #FFFFFF;
   --text: #1C1C1E;
@@ -459,27 +459,26 @@ input, textarea { font-family: inherit; }
   <!-- Header -->
   <div id="header">
     <div id="logo">
-      <svg viewBox="0 0 32 32" fill="none">
-        <ellipse cx="16" cy="19" rx="12" ry="10" fill="url(#catGrad)"/>
-        <ellipse cx="11" cy="12" rx="5" ry="7" fill="url(#catGrad)"/>
-        <ellipse cx="21" cy="12" rx="5" ry="7" fill="url(#catGrad)"/>
-        <!-- ears -->
-        <polygon points="7,6 10,13 14,6" fill="#8B5CF6"/>
-        <polygon points="18,6 22,13 25,6" fill="#8B5CF6"/>
-        <!-- face -->
-        <circle cx="13" cy="18" r="1.5" fill="white"/>
-        <circle cx="19" cy="18" r="1.5" fill="white"/>
-        <ellipse cx="16" cy="21" rx="2" ry="1.2" fill="#EC4899"/>
-        <defs>
-          <linearGradient id="catGrad" x1="0" y1="0" x2="32" y2="32">
-            <stop offset="0%" stop-color="#8B5CF6"/>
-            <stop offset="100%" stop-color="#EC4899"/>
-          </linearGradient>
-        </defs>
+      <svg viewBox="0 0 100 100" width="40" height="40">
+        <rect width="100" height="100" rx="22" fill="#F472B6"/>
+        <polygon points="18,42 12,16 36,34" fill="#F9A8D4"/>
+        <polygon points="82,42 88,16 64,34" fill="#F9A8D4"/>
+        <polygon points="20,40 15,20 34,34" fill="#FECDD3"/>
+        <polygon points="80,40 85,20 66,34" fill="#FECDD3"/>
+        <circle cx="50" cy="60" r="30" fill="white"/>
+        <ellipse cx="38" cy="54" rx="5.5" ry="6.5" fill="#1a0533"/>
+        <ellipse cx="62" cy="54" rx="5.5" ry="6.5" fill="#1a0533"/>
+        <circle cx="40" cy="52" r="1.8" fill="white"/>
+        <circle cx="64" cy="52" r="1.8" fill="white"/>
+        <ellipse cx="50" cy="65" rx="2.5" ry="2" fill="#DB2777"/>
+        <path d="M46 69 Q50 73 54 69" stroke="#FECDD3" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        <line x1="14" y1="62" x2="36" y2="63" stroke="#FECDD3" stroke-width="1.2" opacity="0.8"/>
+        <line x1="14" y1="67" x2="36" y2="66" stroke="#FECDD3" stroke-width="1.2" opacity="0.8"/>
+        <line x1="64" y1="63" x2="86" y2="62" stroke="#FECDD3" stroke-width="1.2" opacity="0.8"/>
+        <line x1="64" y1="66" x2="86" y2="67" stroke="#FECDD3" stroke-width="1.2" opacity="0.8"/>
       </svg>
-      <span id="wordmark">KAT</span>
       <div id="sync-dot" title="Sync status"></div>
-  <div id="sync-ts" style="font-size:9px;color:var(--text3);display:none"></div>
+      <div id="sync-ts" style="font-size:9px;color:var(--text3);display:none"></div>
     </div>
     <div id="header-right">
       <button id="btn-search" title="Rechercher" aria-label="Rechercher">🔍</button>
@@ -769,7 +768,7 @@ input, textarea { font-family: inherit; }
           <div class="settings-row-label" style="font-weight:700">☁️ Sync depuis Apple Calendar</div>
           <div style="font-size:12px;color:var(--text2);margin-top:2px">Importe les events iCloud → KAT</div>
         </div>
-        <button class="btn-ghost" style="color:#8B5CF6;font-weight:700" onclick="syncFromAppleCalendar()">Sync</button>
+        <button class="btn-ghost" style="color:#F472B6;font-weight:700" onclick="syncFromAppleCalendar()">Sync</button>
       </div>
       <div class="settings-row">
         <span class="settings-row-label" id="webcal-label" style="font-size:12px">webcal://…/ical</span>
@@ -1172,7 +1171,7 @@ async function pushToServer() {
 const DEFAULT_CATS = [
   { id: 'cat1', name: 'Travail',   color: '#007AFF', emoji: '💼' },
   { id: 'cat2', name: 'Sport',     color: '#34C759', emoji: '🏃' },
-  { id: 'cat3', name: 'Personnel', color: '#8B5CF6', emoji: '👤' },
+  { id: 'cat3', name: 'Personnel', color: '#F472B6', emoji: '👤' },
   { id: 'cat4', name: 'Loisirs',   color: '#FF9500', emoji: '🎮' },
   { id: 'cat5', name: 'Santé',     color: '#FF3B30', emoji: '❤️' },
   { id: 'cat6', name: 'Social',    color: '#5AC8FA', emoji: '👥' },
@@ -2704,7 +2703,7 @@ function renderCatsSettings() {
   const list = document.getElementById('cats-settings-list');
   const cats = getCats();
   list.innerHTML = '';
-  const CAT_COLORS = ['#007AFF','#34C759','#FF3B30','#FF9500','#8B5CF6','#5856D6','#FF2D55','#5AC8FA','#FFD60A','#FF6B6B','#4ECDC4','#06B6D4'];
+  const CAT_COLORS = ['#007AFF','#34C759','#FF3B30','#FF9500','#F472B6','#5856D6','#FF2D55','#5AC8FA','#FFD60A','#FF6B6B','#4ECDC4','#06B6D4'];
   cats.forEach((cat, i) => {
     const wrapper = document.createElement('div');
 
@@ -2818,7 +2817,7 @@ async function addCat() {
   const name = prompt('Nom de la catégorie :');
   if (!name) return;
   const emoji = prompt('Emoji :') || '📌';
-  const color = prompt('Couleur hex (ex: #FF6B6B) :') || '#8B5CF6';
+  const color = prompt('Couleur hex (ex: #FF6B6B) :') || '#F472B6';
   if (!S.cats.length) S.cats = [...DEFAULT_CATS];
   S.cats.push({ id: uid(), name: name.trim(), emoji, color });
   await saveData();
@@ -2900,7 +2899,7 @@ function openInMaps(addr) {
 
 // ═══ CONFETTI ═══
 function launchConfetti() {
-  const colors = ['#8B5CF6','#EC4899','#F59E0B','#10B981','#3B82F6','#EF4444'];
+  const colors = ['#F472B6','#EC4899','#F59E0B','#10B981','#3B82F6','#EF4444'];
   for (let i = 0; i < 30; i++) {
     const p = document.createElement('div');
     p.className = 'confetti-piece';
@@ -3661,7 +3660,7 @@ function renderStatsWithNav(container) {
 
 // ═══ COULEUR OVERRIDE PAR EVENT ═══
 function renderColorPalette(currentColor) {
-  const colors = ['#007AFF','#34C759','#8B5CF6','#FF9500','#FF3B30','#5AC8FA','#EC4899','#F59E0B','#10B981','#6B7280'];
+  const colors = ['#007AFF','#34C759','#F472B6','#FF9500','#FF3B30','#5AC8FA','#EC4899','#F59E0B','#10B981','#6B7280'];
   let html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">';
   for (const c of colors) {
     const sel = c === currentColor ? 'border:3px solid var(--text)' : 'border:3px solid transparent';
@@ -3700,8 +3699,8 @@ function exportJournalPdf() {
   let body = `<style>
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .entry { page-break-after: always; } .entry:last-child { page-break-after: avoid; } }
     body { font-family: -apple-system, sans-serif; max-width: 600px; margin: auto; padding: 32px; color: #1C1C1E; }
-    .header { display: flex; align-items: center; gap: 10px; border-bottom: 2px solid #8B5CF6; padding-bottom: 16px; margin-bottom: 32px; }
-    .header h1 { color: #8B5CF6; margin: 0; font-size: 28px; }
+    .header { display: flex; align-items: center; gap: 10px; border-bottom: 2px solid #F472B6; padding-bottom: 16px; margin-bottom: 32px; }
+    .header h1 { color: #F472B6; margin: 0; font-size: 28px; }
     .entry { margin-bottom: 32px; padding-bottom: 24px; }
     h2 { margin-top: 0; color: #1C1C1E; font-size: 18px; text-transform: capitalize; }
     p { line-height: 1.7; color: #3C3C3E; white-space: pre-wrap; }
@@ -3966,7 +3965,7 @@ const COURSE_CATS = [
   { id: 'viandes',           name: 'Viandes & Poissons',  icon: '🥩', color: '#FF3B30' },
   { id: 'produits-laitiers', name: 'Produits laitiers',   icon: '🧀', color: '#FFD60A' },
   { id: 'boulangerie',       name: 'Boulangerie',         icon: '🥖', color: '#FF9500' },
-  { id: 'epicerie',          name: 'Épicerie & Conserves',icon: '🥫', color: '#8B5CF6' },
+  { id: 'epicerie',          name: 'Épicerie & Conserves',icon: '🥫', color: '#F472B6' },
   { id: 'boissons',          name: 'Boissons',            icon: '🥤', color: '#5AC8FA' },
   { id: 'surgeles',          name: 'Surgelés',            icon: '❄️', color: '#007AFF' },
   { id: 'hygiene',           name: 'Hygiène & Beauté',    icon: '🧴', color: '#FF2D55' },
@@ -4216,7 +4215,7 @@ document.getElementById('course-save-btn').addEventListener('click', async () =>
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     // Fond violet arrondi
-    ctx.fillStyle = '#8B5CF6';
+    ctx.fillStyle = '#F472B6';
     ctx.beginPath(); ctx.roundRect(0,0,180,180,36); ctx.fill();
     // Oreilles
     ctx.fillStyle = '#A78BFA';

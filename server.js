@@ -287,22 +287,22 @@ app.use(express.static(path.join(__dirname, 'public'), {
 
 // ── Cat head SVG icon ──
 const CAT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <rect width="100" height="100" rx="22" fill="#8B5CF6"/>
-  <polygon points="18,42 12,16 36,34" fill="#A78BFA"/>
-  <polygon points="82,42 88,16 64,34" fill="#A78BFA"/>
-  <polygon points="20,40 15,20 34,34" fill="#DDD6FE"/>
-  <polygon points="80,40 85,20 66,34" fill="#DDD6FE"/>
+  <rect width="100" height="100" rx="22" fill="#F472B6"/>
+  <polygon points="18,42 12,16 36,34" fill="#F9A8D4"/>
+  <polygon points="82,42 88,16 64,34" fill="#F9A8D4"/>
+  <polygon points="20,40 15,20 34,34" fill="#FECDD3"/>
+  <polygon points="80,40 85,20 66,34" fill="#FECDD3"/>
   <circle cx="50" cy="60" r="30" fill="white"/>
   <ellipse cx="38" cy="54" rx="5.5" ry="6.5" fill="#1a0533"/>
   <ellipse cx="62" cy="54" rx="5.5" ry="6.5" fill="#1a0533"/>
   <circle cx="40" cy="52" r="1.8" fill="white"/>
   <circle cx="64" cy="52" r="1.8" fill="white"/>
-  <ellipse cx="50" cy="65" rx="2.5" ry="2" fill="#F9A8D4"/>
-  <path d="M46 69 Q50 73 54 69" stroke="#E9D5FF" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-  <line x1="14" y1="62" x2="36" y2="63" stroke="#DDD6FE" stroke-width="1.2" opacity="0.8"/>
-  <line x1="14" y1="67" x2="36" y2="66" stroke="#DDD6FE" stroke-width="1.2" opacity="0.8"/>
-  <line x1="64" y1="63" x2="86" y2="62" stroke="#DDD6FE" stroke-width="1.2" opacity="0.8"/>
-  <line x1="64" y1="66" x2="86" y2="67" stroke="#DDD6FE" stroke-width="1.2" opacity="0.8"/>
+  <ellipse cx="50" cy="65" rx="2.5" ry="2" fill="#DB2777"/>
+  <path d="M46 69 Q50 73 54 69" stroke="#FECDD3" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <line x1="14" y1="62" x2="36" y2="63" stroke="#FECDD3" stroke-width="1.2" opacity="0.8"/>
+  <line x1="14" y1="67" x2="36" y2="66" stroke="#FECDD3" stroke-width="1.2" opacity="0.8"/>
+  <line x1="64" y1="63" x2="86" y2="62" stroke="#FECDD3" stroke-width="1.2" opacity="0.8"/>
+  <line x1="64" y1="66" x2="86" y2="67" stroke="#FECDD3" stroke-width="1.2" opacity="0.8"/>
 </svg>`;
 
 app.get('/icon.svg', (_, res) => {
@@ -319,8 +319,8 @@ app.get('/manifest.json', (_, res) => {
     description: 'Agenda personnel de KAT 🐱',
     start_url: '/',
     display: 'standalone',
-    background_color: '#8B5CF6',
-    theme_color: '#8B5CF6',
+    background_color: '#F472B6',
+    theme_color: '#F472B6',
     orientation: 'portrait',
     icons: [
       { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
