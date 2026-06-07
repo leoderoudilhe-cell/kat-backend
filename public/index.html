@@ -906,13 +906,37 @@ async function loadAll() {
     S.settings = (await idbGet('kv','settings'))  || {};
     S.courses  = (await idbGet('kv','courses'))   || { items: [], suggestions: [] };
     S.ptodos   = (await idbGet('kv','ptodos'))    || [];
+
+    // Validate critical data — if all empty but we had backup, restore
+    const evCount = Object.values(S.events).reduce((a,v) => a + (Array.isArray(v)?v.length:0), 0);
+    if (evCount === 0) {
+      const backup = await idbGet('kv','events_backup');
+      if (backup) {
+        const backupCount = Object.values(backup).reduce((a,v)=>a+(Array.isArray(v)?v.length:0), 0);
+        if (backupCount > 0) {
+          console.log(`🔄 Restored ${backupCount} events from local backup`);
+          S.events = backup;
+          await idbSet('kv','events', backup);
+        }
+      }
+    }
+    // Same for courses
+    if ((S.courses?.items || []).length === 0) {
+      const backup = await idbGet('kv','courses_backup');
+      if (backup?.items?.length > 0) {
+        console.log(`🔄 Restored ${backup.items.length} courses from local backup`);
+        S.courses = backup;
+        await idbSet('kv','courses', backup);
+      }
+    }
   } catch(e) {
     console.error('IDB load error:', e);
     toast('⚠️ Erreur chargement données');
   }
 }
+let _saveCount = 0;
 async function saveData() {
-  invalidateEvCache(); // Clear eventsForDay cache on any data change
+  invalidateEvCache();
   try {
     await idbSet('kv','events',  S.events);
     await idbSet('kv','todos',   S.todos);
@@ -921,6 +945,15 @@ async function saveData() {
     await idbSet('kv','settings',S.settings);
     await idbSet('kv','courses', S.courses);
     await idbSet('kv','ptodos',  S.ptodos);
+
+    // Backup rotatif toutes les 5 sauvegardes (events + courses = données critiques)
+    _saveCount++;
+    if (_saveCount % 5 === 0) {
+      const evCount = Object.values(S.events).reduce((a,v) => a + (Array.isArray(v)?v.length:0), 0);
+      if (evCount > 0) await idbSet('kv','events_backup', S.events);
+      if ((S.courses?.items || []).length > 0) await idbSet('kv','courses_backup', S.courses);
+    }
+
     scheduleSyncDebounced();
   } catch(e) {
     console.error('IDB save error:', e);
@@ -953,10 +986,17 @@ async function smartSyncFromServer() {
 
     // Si le serveur a des données plus récentes que notre dernier sync, pull
     if (serverUpdatedAt > localUpdatedAt) {
-      // Pull events (toujours, même vide — permet les suppressions)
+      // Pull events — mais ne JAMAIS écraser si serveur est vide et local non
       if (data.events !== undefined) {
-        const serverStr = JSON.stringify(data.events);
-        if (serverStr !== JSON.stringify(S.events)) { S.events = data.events; changed = true; }
+        const serverCount = Object.values(data.events).reduce((a,v) => a + (Array.isArray(v)?v.length:0), 0);
+        const localCount = Object.values(S.events).reduce((a,v) => a + (Array.isArray(v)?v.length:0), 0);
+        // Permettre overwrite si: serveur a des données OU local est vide OU on a confirmé suppression (server >= local * 0.5)
+        if (serverCount > 0 || localCount === 0 || serverCount >= localCount * 0.5) {
+          const serverStr = JSON.stringify(data.events);
+          if (serverStr !== JSON.stringify(S.events)) { S.events = data.events; changed = true; }
+        } else {
+          console.warn(`⚠️ Refused empty events from server: server=${serverCount} local=${localCount}`);
+        }
       }
       if (data.todos !== undefined) {
         const serverStr = JSON.stringify(data.todos);

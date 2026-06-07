@@ -51,13 +51,29 @@ const DEFAULT = {
 let _cachedData = null;
 function loadData() {
   if (_cachedData) return _cachedData;
+  // Try main file
   try {
     if (fs.existsSync(DATA_FILE)) {
       const d = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
       _cachedData = d;
       return d;
     }
-  } catch(e) { console.warn('load error:', e.message); }
+  } catch(e) {
+    console.warn('Main data file corrupted:', e.message);
+  }
+  // Fallback: try backup
+  try {
+    const backupFile = DATA_FILE + '.backup';
+    if (fs.existsSync(backupFile)) {
+      console.log('🔄 Loading from backup');
+      const d = JSON.parse(fs.readFileSync(backupFile, 'utf8'));
+      _cachedData = d;
+      // Restore main file from backup
+      try { fs.copyFileSync(backupFile, DATA_FILE); } catch(e){}
+      return d;
+    }
+  } catch(e) { console.warn('Backup also corrupted:', e.message); }
+  // Last resort: defaults
   _cachedData = JSON.parse(JSON.stringify(DEFAULT));
   return _cachedData;
 }
@@ -67,13 +83,35 @@ let _ghPersistTimer = null;
 function saveData(d) {
   try {
     d._pushSubs = _pushSubs;
-    fs.writeFileSync(DATA_FILE, JSON.stringify(d, null, 2));
-  } catch(e) { console.warn('save error:', e.message); }
+    d._updatedAt = Date.now();
+    // Write atomically: tmp file puis rename (évite corruption en cas de crash)
+    const tmp = DATA_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(d, null, 2));
+    fs.renameSync(tmp, DATA_FILE);
+    // Backup rotatif toutes les 10 saves
+    _saveCounter = (_saveCounter || 0) + 1;
+    if (_saveCounter % 10 === 0) {
+      try {
+        const backupFile = DATA_FILE + '.backup';
+        fs.copyFileSync(DATA_FILE, backupFile);
+      } catch(e) {}
+    }
+  } catch(e) {
+    console.warn('save error:', e.message);
+    // Tenter de restaurer depuis backup
+    try {
+      const backupFile = DATA_FILE + '.backup';
+      if (fs.existsSync(backupFile)) {
+        fs.copyFileSync(backupFile, DATA_FILE);
+        console.log('🔄 Restored from backup');
+      }
+    } catch(e2) {}
+  }
   updateGithubICS(d.events || {}).catch(() => {});
-  // Debounced GitHub data persistence (every 10s max)
   clearTimeout(_ghPersistTimer);
   _ghPersistTimer = setTimeout(() => persistDataToGitHub(d).catch(()=>{}), 10000);
 }
+let _saveCounter = 0;
 
 // GitHub credentials for static iCal hosting
 const GH_TOKEN = process.env.GITHUB_TOKEN;
@@ -302,6 +340,34 @@ app.get('/api/data', (_, res) => {
   res.json(d);
 });
 
+// Manual full backup download — pour téléchargement assurance
+app.get('/api/backup', (_, res) => {
+  const d = loadData();
+  res.set('Content-Type', 'application/json');
+  res.set('Content-Disposition', `attachment; filename="kat-backup-${Date.now()}.json"`);
+  res.send(JSON.stringify(d, null, 2));
+});
+
+// Stats — voir ce qui est sur le serveur
+app.get('/api/stats', (_, res) => {
+  const d = loadData();
+  const evCount = Object.values(d.events||{}).reduce((a,v) => a + (Array.isArray(v)?v.length:0), 0);
+  const todoCount = Object.values(d.todos||{}).reduce((a,v) => a + (Array.isArray(v)?v.length:0), 0);
+  const courseCount = (d.courses?.items||[]).length;
+  const ptodoCount = (d.ptodos||[]).length;
+  const journalCount = Object.keys(d.journal||{}).length;
+  res.json({
+    events: evCount,
+    todos: todoCount,
+    courses: courseCount,
+    ptodos: ptodoCount,
+    journal: journalCount,
+    cats: (d.cats||[]).length,
+    subs: _pushSubs.length,
+    lastUpdate: d._updatedAt || 0
+  });
+});
+
 app.post('/api/data', (req, res) => {
   try {
     const d = loadData(), b = req.body;
@@ -321,13 +387,28 @@ app.post('/api/data', (req, res) => {
         if (!newIds.has(id)) deletedIds.push(id);
       }
     }
-    if (b.events  !== undefined) {
-      d.events = b.events;
-      // Schedule event reminders via Web Push
-      setTimeout(() => scheduleEventReminders(d.events), 100);
+    if (b.events !== undefined) {
+      const incomingCount = Object.values(b.events).reduce((a,v) => a + (Array.isArray(v) ? v.length : 0), 0);
+      const existingCount = Object.values(d.events || {}).reduce((a,v) => a + (Array.isArray(v) ? v.length : 0), 0);
+      // Protection : ne pas écraser si serveur a des events et incoming est suspicieusement vide
+      // Sauf si client a >= serveur (suppression légitime)
+      if (incomingCount > 0 || existingCount === 0 || incomingCount >= existingCount * 0.5) {
+        d.events = b.events;
+        setTimeout(() => scheduleEventReminders(d.events), 100);
+      } else {
+        console.warn(`⚠️ Refused empty events overwrite: server=${existingCount} incoming=${incomingCount}`);
+      }
     }
-    if (b.todos   !== undefined) d.todos   = b.todos;
-    if (b.cats    !== undefined) d.cats    = b.cats;
+    if (b.todos !== undefined) {
+      const incomingCount = Object.values(b.todos).reduce((a,v) => a + (Array.isArray(v) ? v.length : 0), 0);
+      const existingCount = Object.values(d.todos || {}).reduce((a,v) => a + (Array.isArray(v) ? v.length : 0), 0);
+      if (incomingCount > 0 || existingCount === 0) {
+        d.todos = b.todos;
+      }
+    }
+    if (b.cats !== undefined && Array.isArray(b.cats) && b.cats.length > 0) {
+      d.cats = b.cats;
+    }
     // Ne jamais écraser des données existantes avec une liste vide
     if (b.courses !== undefined) {
       const incomingItems = (b.courses.items || []).length;
@@ -339,13 +420,18 @@ app.post('/api/data', (req, res) => {
     }
     if (b.settings !== undefined) d.settings = b.settings;
     if (b.journal !== undefined && b.journal !== null) {
-      for (const [k, v] of Object.entries(b.journal))
-        d.journal[k] = { mood: v.mood, text: v.text, date: v.date };
-        // Include photos (max 500KB per entry to avoid giant files)
+      for (const [k, v] of Object.entries(b.journal)) {
+        const existing = d.journal[k] || {};
+        // Merge: garder photos existantes si client n'en envoie pas
+        const merged = { mood: v.mood, text: v.text, date: v.date };
         if (Array.isArray(v.photos) && v.photos.length) {
           let photosStr = JSON.stringify(v.photos);
-          d.journal[k].photos = photosStr.length < 500000 ? v.photos : v.photos.slice(0,2);
+          merged.photos = photosStr.length < 500000 ? v.photos : v.photos.slice(0,2);
+        } else if (existing.photos && existing.photos.length) {
+          merged.photos = existing.photos; // garde photos existantes
         }
+        d.journal[k] = merged;
+      }
     }
     saveData(d);
     // Batch CalDAV — debounced 3s to group rapid changes
@@ -730,15 +816,23 @@ app.post('/api/delete-event', async (req, res) => {
 app.get('*', (_, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app._icloudTimer = null;
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   console.log(`🐱 KAT v3 on :${PORT}`);
-  // Restore data from GitHub on startup
-  // Load push subscriptions from dedicated file
+  // Try to restore data from GitHub if local files are missing/empty
+  if (!fs.existsSync(DATA_FILE)) {
+    try {
+      const ghData = await loadFromGitHub();
+      if (ghData) {
+        _cachedData = ghData;
+        fs.writeFileSync(DATA_FILE, JSON.stringify(ghData, null, 2));
+        const evCount = Object.values(ghData.events||{}).reduce((a,v)=>a+(Array.isArray(v)?v.length:0),0);
+        console.log(`✅ Restored from GitHub: ${evCount} events`);
+      }
+    } catch(e) { console.warn('GitHub restore failed:', e.message); }
+  }
   loadPushSubs();
-  // Start cron: check event reminders every 60 seconds
   setInterval(checkEventReminders, 60 * 1000);
   console.log('⏰ Reminder cron started (every 60s)');
-  // Start daily journal push reminder at 18h Paris
   scheduleDailyJournalReminder();
 });
 
