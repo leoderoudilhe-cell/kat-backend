@@ -187,6 +187,20 @@ input, textarea { font-family: inherit; }
 }
 .event-block:active { transform: scale(0.98); }
 .event-block.done { opacity: 0.5; }
+/* Empêcher sélection texte sur grille horaire (drag & drop) */
+.ev-positioned, .ev-positioned *,
+.hour-slot, .hour-slot *,
+#hour-grid, #hour-grid * {
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+/* Permettre tap normal sur les boutons d'action */
+.ev-positioned button, .ev-positioned button * {
+  -webkit-touch-callout: default !important;
+}
 .event-cat-bar { width: 4px; border-radius: 4px; flex-shrink: 0; align-self: stretch; min-height: 36px; }
 .event-info { flex: 1; min-width: 0; }
 .event-title { font-weight: 600; font-size: 15px; margin-bottom: 2px; }
@@ -640,9 +654,12 @@ input, textarea { font-family: inherit; }
       </select>
     </div>
     <button class="btn-primary" id="ev-save-btn" style="margin-top:4px">Enregistrer</button>
-    <div style="display:flex;justify-content:space-between;margin-top:12px">
+    <div style="display:flex;justify-content:space-between;margin-top:12px;gap:8px;flex-wrap:wrap">
       <button class="btn-ghost" onclick="closeEventModal()">Annuler</button>
-      <button class="btn-danger" id="ev-delete-btn" style="display:none">Supprimer</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn-ghost" id="ev-duplicate-btn" style="display:none;color:var(--kat);font-weight:600">📅 Dupliquer</button>
+        <button class="btn-danger" id="ev-delete-btn" style="display:none">Supprimer</button>
+      </div>
     </div>
   </div>
 </div>
@@ -2421,6 +2438,7 @@ function openEventModal(dateStr, evId) {
   document.getElementById('event-modal-title').textContent = evId ? 'Modifier l\'événement' : 'Nouvel événement';
   document.getElementById('ev-date').value = _editingEvDate;
   document.getElementById('ev-delete-btn').style.display = evId ? '' : 'none';
+  document.getElementById('ev-duplicate-btn').style.display = evId ? '' : 'none';
 
   const ev = evId ? (S.events[_editingEvDate]||[]).find(e=>e.id===evId) : null;
   document.getElementById('ev-title').value    = ev ? ev.title    : '';
@@ -2516,11 +2534,11 @@ document.getElementById('ev-save-btn').addEventListener('click', async () => {
     doneInstances: {},
   };
 
+  const wasNewEvent = !_editingEvId;
+
   if (_editingEvId && _editingEvDate) {
-    // Preserve doneInstances
     const existing = (S.events[_editingEvDate]||[]).find(e=>e.id===_editingEvId);
     if (existing) evData.doneInstances = existing.doneInstances || {};
-    // If date changed, move
     if (_editingEvDate !== dk) {
       S.events[_editingEvDate] = (S.events[_editingEvDate]||[]).filter(e=>e.id!==_editingEvId);
     } else {
@@ -2535,7 +2553,184 @@ document.getElementById('ev-save-btn').addEventListener('click', async () => {
   await saveData();
   render();
   toast('✅ Événement enregistré');
+
+  // Si nouvel event ET pas de récurrence configurée → propose duplication multi-jours
+  if (wasNewEvent && evData.recurrence === 'none') {
+    setTimeout(() => offerDuplicateToMultipleDays(evData, dk), 300);
+  }
 });
+
+// ═══════════════════════════════════════════════════════
+//  DUPLICATION MULTI-JOURS — Sélecteur visuel rapide
+// ═══════════════════════════════════════════════════════
+function offerDuplicateToMultipleDays(evData, baseDk) {
+  const baseDate = parseDate(baseDk);
+  const baseDayOfWeek = (baseDate.getDay() + 6) % 7; // Lun=0, Dim=6
+
+  // Calcule les 14 prochains jours (2 semaines)
+  const days = [];
+  for (let i = 1; i <= 13; i++) {
+    const d = new Date(baseDate);
+    d.setDate(baseDate.getDate() + i);
+    days.push({
+      dk: dateKey(d),
+      label: ['L','M','M','J','V','S','D'][(d.getDay()+6)%7],
+      num: d.getDate(),
+      month: d.toLocaleDateString('fr-FR', { month: 'short' }),
+      isWeekend: d.getDay() === 0 || d.getDay() === 6,
+      isSameDayOfWeek: ((d.getDay()+6)%7) === baseDayOfWeek,
+    });
+  }
+
+  // Build modal
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay open';
+  modal.id = 'dup-modal';
+  modal.innerHTML = `
+    <div class="modal-sheet" style="max-width:520px">
+      <div class="modal-handle"></div>
+      <div style="padding:0 20px">
+        <div style="text-align:center;margin-bottom:6px">
+          <div style="font-size:36px;margin-bottom:8px">📅</div>
+          <div style="font-size:18px;font-weight:700">Dupliquer "${escHtml(evData.title)}" ?</div>
+          <div style="font-size:13px;color:var(--text2);margin-top:4px">${evData.time || ''} — choisis les jours où le répéter</div>
+        </div>
+
+        <!-- Raccourcis rapides -->
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin:16px 0">
+          <button class="dup-shortcut" data-shortcut="weekdays" style="flex:1;min-width:80px;padding:8px;border-radius:10px;background:var(--bg);font-size:13px;font-weight:600;border:none;cursor:pointer">Lun→Ven</button>
+          <button class="dup-shortcut" data-shortcut="sameDow" style="flex:1;min-width:80px;padding:8px;border-radius:10px;background:var(--bg);font-size:13px;font-weight:600;border:none;cursor:pointer">Tous les ${['lundis','mardis','mercredis','jeudis','vendredis','samedis','dimanches'][baseDayOfWeek]}</button>
+          <button class="dup-shortcut" data-shortcut="all" style="flex:1;min-width:80px;padding:8px;border-radius:10px;background:var(--bg);font-size:13px;font-weight:600;border:none;cursor:pointer">14 jours</button>
+          <button class="dup-shortcut" data-shortcut="clear" style="flex:1;min-width:80px;padding:8px;border-radius:10px;background:var(--bg);font-size:13px;font-weight:600;color:var(--red);border:none;cursor:pointer">Aucun</button>
+        </div>
+
+        <!-- Grille de 14 jours -->
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin:16px 0">
+          ${days.map(d => `
+            <div class="dup-day" data-dk="${d.dk}" style="
+              aspect-ratio:1;border-radius:10px;background:var(--bg);
+              display:flex;flex-direction:column;align-items:center;justify-content:center;
+              cursor:pointer;border:2px solid transparent;transition:all .15s;
+              ${d.isWeekend ? 'opacity:0.7' : ''}
+            ">
+              <div style="font-size:9px;color:var(--text2);font-weight:600">${d.label}</div>
+              <div style="font-size:18px;font-weight:700;line-height:1">${d.num}</div>
+              <div style="font-size:8px;color:var(--text3)">${d.month}</div>
+            </div>
+          `).join('')}
+        </div>
+
+        <button id="dup-confirm-btn" style="
+          width:100%;padding:14px;border-radius:12px;
+          background:linear-gradient(135deg,var(--kat),var(--kat2));
+          color:white;font-size:16px;font-weight:700;border:none;cursor:pointer;
+          margin-bottom:8px
+        " disabled>Sélectionne des jours</button>
+        <button id="dup-cancel-btn" style="
+          width:100%;padding:12px;border-radius:12px;
+          background:transparent;color:var(--text2);font-size:14px;border:none;cursor:pointer;
+          margin-bottom:12px
+        ">Pas maintenant</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  // Selected days
+  const selected = new Set();
+  const KAT_COLOR = getComputedStyle(document.documentElement).getPropertyValue('--kat').trim() || '#F472B6';
+
+  function updateConfirmBtn() {
+    const btn = document.getElementById('dup-confirm-btn');
+    if (selected.size === 0) {
+      btn.textContent = 'Sélectionne des jours';
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+    } else {
+      btn.textContent = `Dupliquer sur ${selected.size} jour${selected.size>1?'s':''}`;
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    }
+  }
+
+  // Day click
+  modal.querySelectorAll('.dup-day').forEach(d => {
+    d.addEventListener('click', () => {
+      const dk = d.dataset.dk;
+      if (selected.has(dk)) {
+        selected.delete(dk);
+        d.style.background = 'var(--bg)';
+        d.style.borderColor = 'transparent';
+        d.style.color = '';
+      } else {
+        selected.add(dk);
+        d.style.background = KAT_COLOR;
+        d.style.borderColor = KAT_COLOR;
+        d.style.color = 'white';
+      }
+      haptic(20);
+      updateConfirmBtn();
+    });
+  });
+
+  // Shortcuts
+  modal.querySelectorAll('.dup-shortcut').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const s = btn.dataset.shortcut;
+      selected.clear();
+      modal.querySelectorAll('.dup-day').forEach(d => {
+        d.style.background = 'var(--bg)';
+        d.style.borderColor = 'transparent';
+        d.style.color = '';
+      });
+      days.forEach((day, i) => {
+        const dayDate = parseDate(day.dk);
+        const dow = (dayDate.getDay() + 6) % 7;
+        let select = false;
+        if (s === 'weekdays' && dow < 5) select = true;
+        if (s === 'sameDow' && dow === baseDayOfWeek) select = true;
+        if (s === 'all') select = true;
+        if (select) {
+          selected.add(day.dk);
+          const el = modal.querySelector(`[data-dk="${day.dk}"]`);
+          if (el) {
+            el.style.background = KAT_COLOR;
+            el.style.borderColor = KAT_COLOR;
+            el.style.color = 'white';
+          }
+        }
+      });
+      haptic(30);
+      updateConfirmBtn();
+    });
+  });
+
+  // Confirm
+  document.getElementById('dup-confirm-btn').addEventListener('click', async () => {
+    if (selected.size === 0) return;
+    let count = 0;
+    for (const dk of selected) {
+      const newEv = {
+        ...evData,
+        id: uid(),
+        doneInstances: {},
+      };
+      ensureEvents(dk);
+      S.events[dk].push(newEv);
+      count++;
+    }
+    modal.remove();
+    haptic([50, 30, 50]);
+    await saveData();
+    render();
+    toast(`✅ Dupliqué sur ${count} jour${count>1?'s':''}`);
+  });
+
+  // Cancel
+  document.getElementById('dup-cancel-btn').addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+
+  updateConfirmBtn();
+}
 
 document.getElementById('ev-delete-btn').addEventListener('click', async () => {
   if (!_editingEvId || !_editingEvDate) return;
@@ -2547,6 +2742,14 @@ document.getElementById('ev-delete-btn').addEventListener('click', async () => {
   closeEventModal();
   await saveData();
   render();
+});
+
+document.getElementById('ev-duplicate-btn').addEventListener('click', () => {
+  if (!_editingEvId || !_editingEvDate) return;
+  const ev = (S.events[_editingEvDate]||[]).find(e=>e.id===_editingEvId);
+  if (!ev) return;
+  closeEventModal();
+  setTimeout(() => offerDuplicateToMultipleDays(ev, _editingEvDate), 300);
 });
 
 // ═══ TODO MODAL ═══
