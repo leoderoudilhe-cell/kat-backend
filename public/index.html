@@ -607,14 +607,30 @@ input, textarea { font-family: inherit; }
         <label class="form-label" for="ev-date">Date</label>
         <input class="form-input" id="ev-date" type="date">
       </div>
-      <div class="form-group">
-        <label class="form-label" for="ev-time">Heure</label>
-        <input class="form-input" id="ev-time" type="time">
-      </div>
     </div>
     <div class="form-group">
-      <label class="form-label" for="ev-duration">Durée (minutes)</label>
-      <input class="form-input" id="ev-duration" type="number" placeholder="60" min="0" max="1440">
+      <label class="form-label">Horaire</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="form-input" id="ev-time" type="time" style="flex:1">
+        <span style="color:var(--text2);font-weight:600">→</span>
+        <input class="form-input" id="ev-end-time" type="time" style="flex:1">
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px" id="ev-duration-display">Durée: —</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Durée rapide</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px" id="ev-duration-chips">
+        <button type="button" class="dur-chip" data-min="15" style="padding:6px 12px;border-radius:18px;background:var(--bg);border:1.5px solid transparent;font-size:13px;font-weight:600;cursor:pointer">15 min</button>
+        <button type="button" class="dur-chip" data-min="30" style="padding:6px 12px;border-radius:18px;background:var(--bg);border:1.5px solid transparent;font-size:13px;font-weight:600;cursor:pointer">30 min</button>
+        <button type="button" class="dur-chip" data-min="45" style="padding:6px 12px;border-radius:18px;background:var(--bg);border:1.5px solid transparent;font-size:13px;font-weight:600;cursor:pointer">45 min</button>
+        <button type="button" class="dur-chip" data-min="60" style="padding:6px 12px;border-radius:18px;background:var(--bg);border:1.5px solid transparent;font-size:13px;font-weight:600;cursor:pointer">1h</button>
+        <button type="button" class="dur-chip" data-min="90" style="padding:6px 12px;border-radius:18px;background:var(--bg);border:1.5px solid transparent;font-size:13px;font-weight:600;cursor:pointer">1h30</button>
+        <button type="button" class="dur-chip" data-min="120" style="padding:6px 12px;border-radius:18px;background:var(--bg);border:1.5px solid transparent;font-size:13px;font-weight:600;cursor:pointer">2h</button>
+        <button type="button" class="dur-chip" data-min="180" style="padding:6px 12px;border-radius:18px;background:var(--bg);border:1.5px solid transparent;font-size:13px;font-weight:600;cursor:pointer">3h</button>
+        <button type="button" class="dur-chip" data-min="240" style="padding:6px 12px;border-radius:18px;background:var(--bg);border:1.5px solid transparent;font-size:13px;font-weight:600;cursor:pointer">4h</button>
+        <button type="button" class="dur-chip" data-min="480" style="padding:6px 12px;border-radius:18px;background:var(--bg);border:1.5px solid transparent;font-size:13px;font-weight:600;cursor:pointer">Journée</button>
+      </div>
+      <input type="hidden" id="ev-duration">
     </div>
     <div class="form-group">
       <label class="form-label">Catégorie</label>
@@ -653,7 +669,10 @@ input, textarea { font-family: inherit; }
         <option value="yearly">Annuel</option>
       </select>
     </div>
-    <button class="btn-primary" id="ev-save-btn" style="margin-top:4px">Enregistrer</button>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn-primary" id="ev-save-btn" style="flex:1">Enregistrer</button>
+      <button class="btn-primary" id="ev-save-dup-btn" style="flex:1;background:linear-gradient(135deg,var(--kat),var(--kat2))">📅 + Dupliquer</button>
+    </div>
     <div style="display:flex;justify-content:space-between;margin-top:12px;gap:8px;flex-wrap:wrap">
       <button class="btn-ghost" onclick="closeEventModal()">Annuler</button>
       <div style="display:flex;gap:8px">
@@ -2431,6 +2450,56 @@ document.getElementById('lightbox').addEventListener('touchend', e => {
 
 
 // ═══ EVENT MODAL ═══
+// ─── Helpers heure/durée ───
+function addMinutesToTime(timeStr, mins) {
+  const [h, m] = timeStr.split(':').map(Number);
+  const total = h * 60 + m + (mins || 0);
+  const newH = Math.floor(total / 60) % 24;
+  const newM = total % 60;
+  return `${String(newH).padStart(2,'0')}:${String(newM).padStart(2,'0')}`;
+}
+function minutesBetween(start, end) {
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  let diff = (eh * 60 + em) - (sh * 60 + sm);
+  if (diff < 0) diff += 1440; // si fin < début, on suppose le lendemain
+  return diff;
+}
+function updateDurationDisplay() {
+  const start = document.getElementById('ev-time').value;
+  const end = document.getElementById('ev-end-time').value;
+  const display = document.getElementById('ev-duration-display');
+  if (!display) return;
+  if (start && end) {
+    const mins = minutesBetween(start, end);
+    document.getElementById('ev-duration').value = mins;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    let str = '';
+    if (h > 0) str += h + 'h';
+    if (m > 0) str += (h > 0 ? String(m).padStart(2,'0') : m + ' min');
+    if (h === 0 && m === 0) str = '0';
+    display.textContent = `Durée: ${str}`;
+    updateDurationChipsSelection(mins);
+  } else {
+    display.textContent = 'Durée: —';
+  }
+}
+function updateDurationChipsSelection(mins) {
+  document.querySelectorAll('.dur-chip').forEach(chip => {
+    const chipMin = parseInt(chip.dataset.min);
+    if (chipMin === mins) {
+      chip.style.background = 'var(--kat)';
+      chip.style.color = 'white';
+      chip.style.borderColor = 'var(--kat)';
+    } else {
+      chip.style.background = 'var(--bg)';
+      chip.style.color = '';
+      chip.style.borderColor = 'transparent';
+    }
+  });
+}
+
 function openEventModal(dateStr, evId) {
   _editingEvId = evId || null;
   _editingEvDate = dateStr || S.date;
@@ -2442,8 +2511,14 @@ function openEventModal(dateStr, evId) {
 
   const ev = evId ? (S.events[_editingEvDate]||[]).find(e=>e.id===evId) : null;
   document.getElementById('ev-title').value    = ev ? ev.title    : '';
-  document.getElementById('ev-time').value     = ev ? (ev.time||'') : '';
-  document.getElementById('ev-duration').value = ev ? (ev.duration||'') : '';
+  const startTime = ev ? (ev.time||'') : '';
+  const duration = ev ? (ev.duration||60) : 60;
+  document.getElementById('ev-time').value = startTime;
+  document.getElementById('ev-duration').value = duration;
+  // Set end-time from start + duration
+  document.getElementById('ev-end-time').value = startTime ? addMinutesToTime(startTime, duration) : '';
+  updateDurationDisplay();
+  updateDurationChipsSelection(duration);
   document.getElementById('ev-location').value = ev ? (ev.location||'') : '';
   document.getElementById('ev-notes').value    = ev ? (ev.notes||'') : '';
   document.getElementById('ev-recurrence').value = ev ? (ev.recurrence||'none') : 'none';
@@ -2488,6 +2563,33 @@ function openEventModal(dateStr, evId) {
     });
   });
   palette.dataset.selected = (ev && ev.color) || '';
+
+  // Listeners heure début/fin
+  document.getElementById('ev-time').oninput = () => {
+    const start = document.getElementById('ev-time').value;
+    const duration = parseInt(document.getElementById('ev-duration').value) || 60;
+    if (start) {
+      document.getElementById('ev-end-time').value = addMinutesToTime(start, duration);
+    }
+    updateDurationDisplay();
+  };
+  document.getElementById('ev-end-time').oninput = updateDurationDisplay;
+
+  // Chips durée: tap → calcule fin depuis début
+  document.querySelectorAll('.dur-chip').forEach(chip => {
+    chip.onclick = () => {
+      const mins = parseInt(chip.dataset.min);
+      const start = document.getElementById('ev-time').value;
+      if (!start) {
+        toast('⚠️ Choisis d\'abord l\'heure de début');
+        return;
+      }
+      document.getElementById('ev-end-time').value = addMinutesToTime(start, mins);
+      document.getElementById('ev-duration').value = mins;
+      updateDurationDisplay();
+      haptic(20);
+    };
+  });
 
   // Templates rapides
   document.querySelectorAll('.ev-tpl-btn').forEach(btn => {
@@ -2554,10 +2656,18 @@ document.getElementById('ev-save-btn').addEventListener('click', async () => {
   render();
   toast('✅ Événement enregistré');
 
-  // Si nouvel event ET pas de récurrence configurée → propose duplication multi-jours
-  if (wasNewEvent && evData.recurrence === 'none') {
+  // Si bouton "Enregistrer + Dupliquer" → ouvre la popup
+  if (_saveAndDuplicate && evData.recurrence === 'none') {
     setTimeout(() => offerDuplicateToMultipleDays(evData, dk), 300);
   }
+  _saveAndDuplicate = false;
+});
+
+// Wire up the "Enregistrer + Dupliquer" button — triggers save with duplicate flag
+let _saveAndDuplicate = false;
+document.getElementById('ev-save-dup-btn').addEventListener('click', () => {
+  _saveAndDuplicate = true;
+  document.getElementById('ev-save-btn').click();
 });
 
 // ═══════════════════════════════════════════════════════
