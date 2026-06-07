@@ -13,9 +13,15 @@ const VAPID_PUBLIC  = process.env.VAPID_PUBLIC  || 'BFj2fRxIbJPviw6ek-ePKX5tNIqh
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE || 'nxAwS9GO872i7LOt8W-ScK37y9HiWuiePmd762SKwXc';
 webpush.setVapidDetails('mailto:kat@app.com', VAPID_PUBLIC, VAPID_PRIVATE);
 
-// Push subscriptions stored in separate file for reliability
 let _pushSubs = [];
+
+const app  = express();
+const PORT = process.env.PORT || 3000;
+const DATA_DIR  = path.join(__dirname, 'data');
+const DATA_FILE = path.join(DATA_DIR, 'kat.json');
 const SUBS_FILE = path.join(DATA_DIR, 'push-subs.json');
+
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function loadPushSubs() {
   try {
@@ -29,13 +35,6 @@ function loadPushSubs() {
 function savePushSubs() {
   try { fs.writeFileSync(SUBS_FILE, JSON.stringify(_pushSubs)); } catch(e) {}
 }
-
-const app  = express();
-const PORT = process.env.PORT || 3000;
-const DATA_DIR  = path.join(__dirname, 'data');
-const DATA_FILE = path.join(DATA_DIR, 'kat.json');
-
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const DEFAULT = {
   events:{}, todos:{}, journal:{}, settings:{},
