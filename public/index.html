@@ -1026,11 +1026,14 @@ async function smartSyncFromServer() {
       if (data.journal) {
         for (const [k, entry] of Object.entries(data.journal)) {
           const local = S.journal[k] || {};
-          const merged = { ...local, ...entry };
-          // Garde photos locales si plus nombreuses
-          if ((local.photos?.length || 0) > (entry.photos?.length || 0)) {
-            merged.photos = local.photos;
-          }
+          // Merge intelligent: garde la valeur non-vide (local OU server)
+          const merged = {
+            mood:  (entry.mood && entry.mood.length)  ? entry.mood  : local.mood,
+            text:  (entry.text && entry.text.length > local.text?.length) ? entry.text : (local.text || entry.text || ''),
+            date:  entry.date || local.date,
+            photos: ((local.photos?.length || 0) >= (entry.photos?.length || 0)) ? local.photos : entry.photos,
+          };
+          if (!merged.photos) merged.photos = [];
           if (JSON.stringify(merged) !== JSON.stringify(local)) {
             S.journal[k] = merged;
             changed = true;
@@ -1081,8 +1084,13 @@ async function syncFromServer() {
     if (data.journal) {
       for (const [k, entry] of Object.entries(data.journal)) {
         const local = S.journal[k] || {};
-        const localPhotos = local.photos && local.photos.length ? local.photos : (entry.photos || []);
-        S.journal[k] = { ...local, ...entry, photos: localPhotos };
+        // Merge intelligent: garde valeur non-vide
+        S.journal[k] = {
+          mood:  (entry.mood && entry.mood.length)  ? entry.mood  : local.mood,
+          text:  (entry.text && entry.text.length > (local.text?.length || 0)) ? entry.text : (local.text || entry.text || ''),
+          date:  entry.date || local.date,
+          photos: ((local.photos?.length || 0) >= (entry.photos?.length || 0)) ? (local.photos || []) : (entry.photos || []),
+        };
       }
     }
     await idbSet('kv','events',  S.events);
@@ -2124,11 +2132,51 @@ function renderJournal(container) {
 
   // Mood buttons — sélection visuelle uniquement, sauvegarde via bouton Enregistrer
   container.querySelectorAll('.mood-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       _selectedMood = btn.dataset.mood;
       container.querySelectorAll('.mood-btn').forEach(b => b.classList.toggle('active', b.dataset.mood === _selectedMood));
+      // AUTO-SAVE: dès qu'elle clique sur un mood, on sauvegarde immédiatement
+      if (!S.journal[S.date]) S.journal[S.date] = {};
+      S.journal[S.date].mood = _selectedMood;
+      S.journal[S.date].date = S.date;
+      await saveData();
+      if (isToday(S.date)) {
+        localStorage.setItem('kat_journal_filled_' + S.date, '1');
+        cancelDailyReminder();
+      }
     });
   });
+
+  // Auto-save TEXTE après 1.5s d'inactivité (sécurité si elle ne tap pas "Enregistrer")
+  const journalTextarea = document.getElementById('journal-text');
+  if (journalTextarea) {
+    let _journalAutoSaveTimer = null;
+    journalTextarea.addEventListener('input', () => {
+      clearTimeout(_journalAutoSaveTimer);
+      _journalAutoSaveTimer = setTimeout(async () => {
+        const text = journalTextarea.value;
+        if (!S.journal[S.date]) S.journal[S.date] = {};
+        S.journal[S.date].text = text;
+        S.journal[S.date].date = S.date;
+        if (_selectedMood) S.journal[S.date].mood = _selectedMood;
+        await saveData();
+        if (isToday(S.date) && (text.length > 0 || _selectedMood)) {
+          localStorage.setItem('kat_journal_filled_' + S.date, '1');
+          cancelDailyReminder();
+        }
+      }, 1500);
+    });
+    // Save aussi quand elle perd le focus (blur)
+    journalTextarea.addEventListener('blur', async () => {
+      clearTimeout(_journalAutoSaveTimer);
+      const text = journalTextarea.value;
+      if (!S.journal[S.date]) S.journal[S.date] = {};
+      S.journal[S.date].text = text;
+      S.journal[S.date].date = S.date;
+      if (_selectedMood) S.journal[S.date].mood = _selectedMood;
+      await saveData();
+    });
+  }
 
   // Journal save — sauvegarde mood + texte + photos ensemble
   const saveBtn = document.getElementById('journal-save-btn');

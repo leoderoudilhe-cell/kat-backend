@@ -446,15 +446,23 @@ app.post('/api/data', (req, res) => {
     }
     if (b.settings !== undefined) d.settings = b.settings;
     if (b.journal !== undefined && b.journal !== null) {
+      if (!d.journal) d.journal = {};
       for (const [k, v] of Object.entries(b.journal)) {
         const existing = d.journal[k] || {};
-        // Merge: garder photos existantes si client n'en envoie pas
-        const merged = { mood: v.mood, text: v.text, date: v.date };
-        if (Array.isArray(v.photos) && v.photos.length) {
-          let photosStr = JSON.stringify(v.photos);
-          merged.photos = photosStr.length < 500000 ? v.photos : v.photos.slice(0,2);
-        } else if (existing.photos && existing.photos.length) {
-          merged.photos = existing.photos; // garde photos existantes
+        // Merge: garder valeur non-vide entre serveur/client
+        const merged = {
+          mood: (v.mood && v.mood.length) ? v.mood : (existing.mood || ''),
+          text: (v.text && v.text.length >= (existing.text?.length || 0)) ? v.text : (existing.text || ''),
+          date: v.date || existing.date,
+        };
+        // Photos: prend le plus grand des deux (client OU serveur)
+        const clientPhotos = Array.isArray(v.photos) ? v.photos : [];
+        const serverPhotos = Array.isArray(existing.photos) ? existing.photos : [];
+        if (clientPhotos.length >= serverPhotos.length && clientPhotos.length > 0) {
+          let photosStr = JSON.stringify(clientPhotos);
+          merged.photos = photosStr.length < 500000 ? clientPhotos : clientPhotos.slice(0,2);
+        } else if (serverPhotos.length > 0) {
+          merged.photos = serverPhotos;
         }
         d.journal[k] = merged;
       }
