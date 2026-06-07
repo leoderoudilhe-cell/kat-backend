@@ -8,6 +8,16 @@ self.addEventListener('push', e => {
   let payload;
   try { payload = e.data.json(); } catch { payload = { title: 'KAT 🐱', body: e.data.text() }; }
 
+  // Push silencieux de sync — déclencher un sync dans toutes les fenêtres ouvertes
+  if (payload.title === '__sync__') {
+    e.waitUntil(
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+        clients.forEach(c => c.postMessage({ type: 'SYNC_NOW' }));
+      })
+    );
+    return; // pas de notif visible
+  }
+
   const opts = {
     body: payload.body || '',
     icon: '/icon.svg',
@@ -33,7 +43,7 @@ self.addEventListener('notificationclick', e => {
   );
 });
 
-// Handle scheduled local notifications (fallback for foreground)
+// Handle messages from app
 self.addEventListener('message', e => {
   if (e.data?.type === 'SCHEDULE_NOTIF') {
     const { title, body, delay, tag } = e.data;

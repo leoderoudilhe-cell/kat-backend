@@ -298,7 +298,9 @@ let _dataModifiedTs = Date.now();
 app.get('/api/ping', (_, res) => res.json({ ok: true, ts: _dataModifiedTs }));
 
 app.get('/api/data', (_, res) => {
-  res.json(loadData());
+  const d = loadData();
+  if (!d._updatedAt) d._updatedAt = _dataModifiedTs;
+  res.json(d);
 });
 
 app.post('/api/data', (req, res) => {
@@ -357,8 +359,13 @@ app.post('/api/data', (req, res) => {
         deletedSnapshot.forEach(id => deleteFromiCloud(id).catch(() => {}));
         if (deletedSnapshot.length) console.log(`🗑️ iCloud delete: ${deletedSnapshot.join(', ')}`);
       }, 3000);
-      // Re-schedule all event reminders with updated events
       setTimeout(() => scheduleEventReminders(d.events), 500);
+
+      // Notification silencieuse aux autres appareils pour qu'ils synchent
+      // (le SW va faire un fetch /api/data au reçu)
+      if (_pushSubs.length > 0) {
+        sendPushToAll('__sync__', 'sync', { tag: 'sync-' + Date.now(), silent: true }).catch(()=>{});
+      }
     }
     res.json({ ok: true });
   } catch(e) {

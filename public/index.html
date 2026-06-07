@@ -948,33 +948,74 @@ async function smartSyncFromServer() {
     if (!resp.ok) return false;
     const data = await resp.json();
     let changed = false;
+    const serverUpdatedAt = data._updatedAt || 0;
+    const localUpdatedAt = S.settings._lastSync || 0;
 
-    if (data.events && Object.keys(data.events).length > 0) {
-      const serverStr = JSON.stringify(data.events);
-      const localStr  = JSON.stringify(S.events);
-      if (serverStr !== localStr) { S.events = data.events; changed = true; }
-    }
-    if (data.todos && Object.keys(data.todos).length > 0) {
-      const serverStr = JSON.stringify(data.todos);
-      if (serverStr !== JSON.stringify(S.todos)) { S.todos = data.todos; changed = true; }
-    }
-    if (data.courses?.items?.length > 0) {
-      const serverStr = JSON.stringify(data.courses);
-      if (serverStr !== JSON.stringify(S.courses)) { S.courses = data.courses; changed = true; }
-    }
-    if (data.ptodos?.length > 0) {
-      const serverStr = JSON.stringify(data.ptodos);
-      if (serverStr !== JSON.stringify(S.ptodos)) { S.ptodos = data.ptodos; changed = true; }
-    }
-    if (changed) {
-      await idbSet('kv','events',  S.events);
-      await idbSet('kv','todos',   S.todos);
-      await idbSet('kv','courses', S.courses);
-      await idbSet('kv','ptodos',  S.ptodos);
+    // Si le serveur a des données plus récentes que notre dernier sync, pull
+    if (serverUpdatedAt > localUpdatedAt) {
+      // Pull events (toujours, même vide — permet les suppressions)
+      if (data.events !== undefined) {
+        const serverStr = JSON.stringify(data.events);
+        if (serverStr !== JSON.stringify(S.events)) { S.events = data.events; changed = true; }
+      }
+      if (data.todos !== undefined) {
+        const serverStr = JSON.stringify(data.todos);
+        if (serverStr !== JSON.stringify(S.todos)) { S.todos = data.todos; changed = true; }
+      }
+      if (data.courses !== undefined) {
+        // Special: ne pas remplacer si local a plus d'items (cas race condition)
+        const localItems = (S.courses?.items || []).length;
+        const serverItems = (data.courses?.items || []).length;
+        if (serverItems >= localItems || serverUpdatedAt > localUpdatedAt + 5000) {
+          const serverStr = JSON.stringify(data.courses);
+          if (serverStr !== JSON.stringify(S.courses)) { S.courses = data.courses; changed = true; }
+        }
+      }
+      if (data.ptodos !== undefined) {
+        const localCount = S.ptodos?.length || 0;
+        const serverCount = data.ptodos?.length || 0;
+        if (serverCount >= localCount || serverUpdatedAt > localUpdatedAt + 5000) {
+          const serverStr = JSON.stringify(data.ptodos);
+          if (serverStr !== JSON.stringify(S.ptodos)) { S.ptodos = data.ptodos; changed = true; }
+        }
+      }
+      if (data.cats && data.cats.length) {
+        const serverStr = JSON.stringify(data.cats);
+        if (serverStr !== JSON.stringify(S.cats)) { S.cats = data.cats; changed = true; }
+      }
+      // Journal merge (photos locales priorité)
+      if (data.journal) {
+        for (const [k, entry] of Object.entries(data.journal)) {
+          const local = S.journal[k] || {};
+          const merged = { ...local, ...entry };
+          // Garde photos locales si plus nombreuses
+          if ((local.photos?.length || 0) > (entry.photos?.length || 0)) {
+            merged.photos = local.photos;
+          }
+          if (JSON.stringify(merged) !== JSON.stringify(local)) {
+            S.journal[k] = merged;
+            changed = true;
+          }
+        }
+      }
+
+      if (changed) {
+        S.settings._lastSync = serverUpdatedAt;
+        await idbSet('kv','events',  S.events);
+        await idbSet('kv','todos',   S.todos);
+        await idbSet('kv','courses', S.courses);
+        await idbSet('kv','ptodos',  S.ptodos);
+        await idbSet('kv','journal', S.journal);
+        await idbSet('kv','cats',    S.cats);
+        await idbSet('kv','settings',S.settings);
+      }
       setSyncDot('ok');
     }
     return changed;
-  } catch(e) { return false; }
+  } catch(e) {
+    console.warn('smartSync error:', e.message);
+    return false;
+  }
 }
 
 async function syncFromServer() {
@@ -1029,7 +1070,7 @@ async function syncFromServer() {
 let _syncDebounceTimer = null;
 function scheduleSyncDebounced() {
   clearTimeout(_syncDebounceTimer);
-  _syncDebounceTimer = setTimeout(pushToServer, 1500);
+  _syncDebounceTimer = setTimeout(pushToServer, 500); // sync quasi-instantané
 }
 async function compressPhotoForSync(dataUrl) {
   return new Promise(resolve => {
@@ -1050,15 +1091,25 @@ async function compressPhotoForSync(dataUrl) {
 async function pushToServer() {
   setSyncDot('syncing');
   try {
-    // Include photos (compressed) in journal
+    // Journal: text + mood seulement (photos stockées localement + compressées séparément si nouvelles)
     const journalClean = {};
     for (const [k, entry] of Object.entries(S.journal)) {
-      const photos = entry.photos || [];
-      const compressedPhotos = await Promise.all(photos.map(p => compressPhotoForSync(p)));
-      journalClean[k] = { mood: entry.mood, text: entry.text, date: entry.date, photos: compressedPhotos };
+      journalClean[k] = { mood: entry.mood, text: entry.text, date: entry.date };
+      // Photos uniquement si présentes ET nouvelles (compressées agressivement)
+      if (entry.photos && entry.photos.length) {
+        try {
+          const compressed = await Promise.all(entry.photos.slice(0, 3).map(p => compressPhotoForSync(p)));
+          journalClean[k].photos = compressed;
+        } catch(e) {}
+      }
     }
-    const settingsClean = { dark: S.settings.dark, soundName: S.settings.soundName }; // don't sync binary sound data
-    const payload = { events: S.events, todos: S.todos, journal: journalClean, cats: S.cats, courses: S.courses, ptodos: S.ptodos, settings: settingsClean };
+    const settingsClean = { dark: S.settings.dark, soundName: S.settings.soundName };
+    const payload = {
+      events: S.events, todos: S.todos, journal: journalClean,
+      cats: S.cats, courses: S.courses, ptodos: S.ptodos,
+      settings: settingsClean,
+      _clientTs: Date.now() // timestamp pour conflict resolution
+    };
     const resp = await fetch('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3718,6 +3769,15 @@ async function boot() {
       .then(async reg => {
         _swReg = reg;
         console.log('✅ SW registered');
+
+        // Listen for sync messages from SW (push silencieux)
+        navigator.serviceWorker.addEventListener('message', async e => {
+          if (e.data?.type === 'SYNC_NOW') {
+            console.log('🔄 Sync triggered by push');
+            const changed = await smartSyncFromServer();
+            if (changed) render();
+          }
+        });
         if (Notification.permission === 'granted' && S.settings.notifEnabled !== false) {
           // Check if browser already has a subscription
           const existing = await reg.pushManager.getSubscription().catch(()=>null);
@@ -3756,21 +3816,34 @@ async function boot() {
   };
   wakeAndSync();
 
-  // Auto-pull depuis le serveur toutes les 30s quand app ouverte
-  // Utilise un timestamp "lastModified" pour ne re-render que si données changées
+  // Auto-pull depuis le serveur toutes les 10s quand l'app est visible
   let _lastServerTs = 0;
-  setInterval(async () => {
+  async function pollServer() {
+    if (document.hidden) return; // skip si app en arrière-plan
     try {
       const r = await fetch('/api/ping', { signal: AbortSignal.timeout(5000) });
       const { ts } = await r.json();
       if (ts !== _lastServerTs) {
         _lastServerTs = ts;
-        // Server has new data (someone else pushed) — pull it
         const changed = await smartSyncFromServer();
         if (changed) render();
       }
     } catch(e) { /* offline */ }
-  }, 30000);
+  }
+  setInterval(pollServer, 10000);
+  // Sync immédiat au retour sur l'app (changement de tab, déverrouillage)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      pollServer();
+      // Push aussi nos données au cas où on a modifié hors-ligne
+      setTimeout(() => pushToServer().catch(()=>{}), 500);
+    }
+  });
+  // Sync au focus (changement de fenêtre Mac/iPad)
+  window.addEventListener('focus', () => {
+    pollServer();
+    setTimeout(() => pushToServer().catch(()=>{}), 500);
+  });
 
   // Auto-sync Apple Calendar -> KAT toutes les 5 min
   autoSyncFromApple();
