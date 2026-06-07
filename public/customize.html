@@ -375,11 +375,16 @@ function applyPreview() {
 
 function applyAll() {
   localStorage.setItem('kat_customize', JSON.stringify(state));
-  // Tell KAT app to reload with new colors
-  showToast('✨ Couleurs sauvegardées ! Recharge KAT pour voir');
+  // Save to server so Leo can see the choice
+  fetch('/api/customize', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(state)
+  }).catch(() => {});
+  showToast('✨ Choix envoyés à Léo ! Il applique tout à KAT.');
   setTimeout(() => {
     window.location.href = '/?customized=' + Date.now();
-  }, 1200);
+  }, 1500);
 }
 
 function showToast(msg) {

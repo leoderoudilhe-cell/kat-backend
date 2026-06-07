@@ -340,6 +340,32 @@ app.get('/api/data', (_, res) => {
   res.json(d);
 });
 
+// Save customization choices
+app.post('/api/customize', (req, res) => {
+  try {
+    const customFile = path.join(DATA_DIR, 'customize.json');
+    fs.writeFileSync(customFile, JSON.stringify(req.body, null, 2));
+    console.log('🎨 Customization saved:', JSON.stringify(req.body));
+    res.json({ ok: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Read customization
+app.get('/api/customize', (_, res) => {
+  try {
+    const customFile = path.join(DATA_DIR, 'customize.json');
+    if (fs.existsSync(customFile)) {
+      res.json(JSON.parse(fs.readFileSync(customFile, 'utf8')));
+    } else {
+      res.json({});
+    }
+  } catch(e) {
+    res.json({});
+  }
+});
+
 // Manual full backup download — pour téléchargement assurance
 app.get('/api/backup', (_, res) => {
   const d = loadData();
