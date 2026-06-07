@@ -1685,9 +1685,115 @@ function attachEventHandlers(container) {
     });
   });
 
-  // Event positionné → edit
+  // Event positionné → edit OU drag & drop fluide
   container.querySelectorAll('.ev-positioned').forEach(el => {
+    let pressTimer = null;
+    let dragging = false;
+    let startY = 0;
+    let startTop = 0;
+    let startTimeMin = 0; // ev.time en minutes depuis minuit
+    let originalTransform = '';
+
+    const gridEl = el.parentElement; // .ev-positioned est dans #hour-grid (parent)
+    // Find the grid container — search up
+    let grid = el;
+    while (grid && grid.id !== 'hour-grid') grid = grid.parentElement;
+
+    function getEvent() {
+      const date = el.dataset.evDate;
+      const id = el.dataset.evId;
+      return (S.events[date] || []).find(e => e.id === id);
+    }
+
+    function endDrag(commit) {
+      if (!dragging) return;
+      dragging = false;
+      el.style.transform = originalTransform;
+      el.style.zIndex = '';
+      el.style.opacity = '';
+      el.style.boxShadow = '';
+      el.style.transition = '';
+      document.body.style.overscrollBehavior = '';
+    }
+
+    el.addEventListener('touchstart', e => {
+      if (e.target.closest('.ev-done-btn') || e.target.closest('.ev-map-btn')) return;
+      const touch = e.touches[0];
+      startY = touch.clientY;
+      startTop = parseInt(el.style.top) || 0;
+      const ev = getEvent();
+      if (!ev) return;
+      const [h, m] = (ev.time || '06:00').split(':').map(Number);
+      startTimeMin = h * 60 + m;
+
+      pressTimer = setTimeout(() => {
+        // ENTRE EN MODE DRAG
+        dragging = true;
+        haptic([50, 30, 50]);
+        originalTransform = el.style.transform || '';
+        el.style.zIndex = '999';
+        el.style.opacity = '0.9';
+        el.style.boxShadow = '0 8px 24px rgba(0,0,0,0.3)';
+        el.style.transition = 'box-shadow .15s, opacity .15s';
+        // Empêche scroll pendant drag
+        document.body.style.overscrollBehavior = 'contain';
+      }, 350);
+    }, { passive: true });
+
+    el.addEventListener('touchmove', e => {
+      if (!dragging) {
+        // Cancel long press si elle bouge trop
+        if (Math.abs(e.touches[0].clientY - startY) > 8) {
+          clearTimeout(pressTimer);
+          pressTimer = null;
+        }
+        return;
+      }
+      e.preventDefault();
+      const touch = e.touches[0];
+      const dy = touch.clientY - startY;
+      const newTop = Math.max(0, startTop + dy);
+      // Snap visuel toutes les 15min (16px)
+      const snappedTop = Math.round(newTop / 16) * 16;
+      el.style.top = snappedTop + 'px';
+    }, { passive: false });
+
+    el.addEventListener('touchend', async e => {
+      clearTimeout(pressTimer);
+      if (!dragging) return;
+      const wasD = dragging;
+      const finalTop = parseInt(el.style.top) || 0;
+      endDrag(true);
+
+      // Calcul nouvelle heure (top relatif au 06h = 0px)
+      const totalMin = Math.round(finalTop / 64 * 60 / 15) * 15;
+      const newH = 6 + Math.floor(totalMin / 60);
+      const newM = totalMin % 60;
+      if (newH < 6 || newH > 22) return; // hors plage
+
+      const newTime = `${String(newH).padStart(2,'0')}:${String(newM).padStart(2,'0')}`;
+
+      // Update event
+      const date = el.dataset.evDate;
+      const id = el.dataset.evId;
+      const ev = (S.events[date] || []).find(e => e.id === id);
+      if (ev && ev.time !== newTime) {
+        ev.time = newTime;
+        haptic(30);
+        toast(`📅 Déplacé à ${newTime}`);
+        await saveData();
+        render();
+      }
+    }, { passive: false });
+
+    el.addEventListener('touchcancel', () => {
+      clearTimeout(pressTimer);
+      endDrag(false);
+    }, { passive: true });
+
+    // Tap normal (pas de long press, pas de drag) → ouvre modal
     el.addEventListener('click', e => {
+      if (dragging) { e.preventDefault(); e.stopPropagation(); return; }
       if (e.target.closest('.ev-done-btn') || e.target.closest('.ev-map-btn')) return;
       e.stopPropagation();
       openEventModal(el.dataset.evDate, el.dataset.evId);
@@ -2102,6 +2208,11 @@ function renderJournal(container) {
   html += '</div>';
   html += `<textarea class="journal-textarea" id="journal-text" placeholder="Comment s'est passée ta journée ? 🐱" maxlength="2000">${escHtml(entry.text||'')}</textarea>`;
   html += '<button class="btn-primary" id="journal-save-btn" style="margin-top:10px">Enregistrer 📔</button>';
+  // Boutons partage esthétique
+  html += `<div style="display:flex;gap:8px;margin-top:10px">
+    <button class="btn-ghost" id="share-day-btn" style="flex:1;padding:10px;border-radius:10px;background:var(--bg);font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px">📤 Partager ce jour</button>
+    <button class="btn-ghost" id="share-week-btn" style="flex:1;padding:10px;border-radius:10px;background:var(--bg);font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px">📅 Partager ma semaine</button>
+  </div>`;
   html += '</div></div>';
 
   // Photos
@@ -2177,6 +2288,12 @@ function renderJournal(container) {
       await saveData();
     });
   }
+
+  // Boutons partage
+  const shareDayBtn = document.getElementById('share-day-btn');
+  if (shareDayBtn) shareDayBtn.addEventListener('click', () => shareJournalDay(S.date));
+  const shareWeekBtn = document.getElementById('share-week-btn');
+  if (shareWeekBtn) shareWeekBtn.addEventListener('click', () => shareJournalWeek(S.date));
 
   // Journal save — sauvegarde mood + texte + photos ensemble
   const saveBtn = document.getElementById('journal-save-btn');
@@ -3741,6 +3858,360 @@ function haptic(pattern) {
 }
 
 // ═══ EXPORT JOURNAL PDF ═══
+
+// ═══════════════════════════════════════════════════════
+//  PARTAGE ESTHÉTIQUE — Génère une image stylée + share
+// ═══════════════════════════════════════════════════════
+
+async function loadImageSafe(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+function drawRoundedRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const words = (text || '').split(' ');
+  let line = '';
+  let lineCount = 0;
+  for (let i = 0; i < words.length; i++) {
+    const testLine = line + words[i] + ' ';
+    if (ctx.measureText(testLine).width > maxWidth && i > 0) {
+      ctx.fillText(line.trim(), x, y);
+      line = words[i] + ' ';
+      y += lineHeight;
+      lineCount++;
+      if (maxLines && lineCount >= maxLines - 1) {
+        const remaining = line + words.slice(i+1).join(' ');
+        let truncated = remaining;
+        while (ctx.measureText(truncated + '…').width > maxWidth && truncated.length > 0) {
+          truncated = truncated.slice(0, -1);
+        }
+        ctx.fillText(truncated + '…', x, y);
+        return y + lineHeight;
+      }
+    } else {
+      line = testLine;
+    }
+  }
+  ctx.fillText(line.trim(), x, y);
+  return y + lineHeight;
+}
+
+async function shareJournalDay(dateKey) {
+  const entry = S.journal[dateKey] || {};
+  if (!entry.mood && !entry.text && !(entry.photos || []).length) {
+    toast('Rien à partager pour ce jour 😅');
+    return;
+  }
+  toast('🎨 Création de l\'image...');
+
+  const W = 1080, H = 1920; // ratio story Instagram
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  // Fond gradient rose pastel
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, '#FECDD3');
+  grad.addColorStop(0.5, '#FBCFE8');
+  grad.addColorStop(1, '#F9A8D4');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Bandes décoratives
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(0, 80, W, 4);
+  ctx.fillRect(0, H - 84, W, 4);
+
+  // Carte blanche centrale
+  const cardX = 60, cardY = 140, cardW = W - 120, cardH = H - 280;
+  ctx.fillStyle = 'white';
+  ctx.shadowColor = 'rgba(244,114,182,0.3)';
+  ctx.shadowBlur = 40;
+  ctx.shadowOffsetY = 20;
+  drawRoundedRect(ctx, cardX, cardY, cardW, cardH, 40);
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+
+  // KAT logo cat head (top)
+  const cx = W / 2;
+  ctx.fillStyle = '#F472B6';
+  drawRoundedRect(ctx, cx - 60, cardY + 50, 120, 120, 28);
+  ctx.fill();
+  // Oreilles
+  ctx.fillStyle = '#F9A8D4';
+  ctx.beginPath();
+  ctx.moveTo(cx - 38, cardY + 80); ctx.lineTo(cx - 50, cardY + 50); ctx.lineTo(cx - 16, cardY + 90); ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx + 38, cardY + 80); ctx.lineTo(cx + 50, cardY + 50); ctx.lineTo(cx + 16, cardY + 90); ctx.closePath();
+  ctx.fill();
+  // Face blanche
+  ctx.fillStyle = 'white';
+  ctx.beginPath();
+  ctx.arc(cx, cardY + 130, 36, 0, Math.PI * 2);
+  ctx.fill();
+  // Yeux
+  ctx.fillStyle = '#1a0533';
+  ctx.beginPath(); ctx.ellipse(cx - 13, cardY + 125, 6, 8, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx + 13, cardY + 125, 6, 8, 0, 0, Math.PI * 2); ctx.fill();
+  // Nez
+  ctx.fillStyle = '#DB2777';
+  ctx.beginPath(); ctx.ellipse(cx, cardY + 140, 3, 2, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Date formatée
+  const d = new Date(dateKey + 'T12:00:00');
+  const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  ctx.fillStyle = '#6B7280';
+  ctx.font = '500 28px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(dateStr.charAt(0).toUpperCase() + dateStr.slice(1), cx, cardY + 220);
+
+  let cursorY = cardY + 290;
+
+  // Mood emoji énorme
+  if (entry.mood) {
+    ctx.font = '180px -apple-system, sans-serif';
+    ctx.fillText(entry.mood, cx, cursorY + 140);
+    cursorY += 200;
+  }
+
+  // Photos (jusqu'à 3, en grille horizontale)
+  const photos = entry.photos || [];
+  if (photos.length > 0) {
+    cursorY += 30;
+    const photoSize = photos.length === 1 ? 600 : photos.length === 2 ? 380 : 260;
+    const gap = 20;
+    const totalW = photos.length * photoSize + (photos.length - 1) * gap;
+    const startX = (W - totalW) / 2;
+    for (let i = 0; i < Math.min(photos.length, 3); i++) {
+      const img = await loadImageSafe(photos[i]);
+      if (img) {
+        const px = startX + i * (photoSize + gap);
+        ctx.save();
+        drawRoundedRect(ctx, px, cursorY, photoSize, photoSize, 24);
+        ctx.clip();
+        // Cover fit
+        const ratio = Math.max(photoSize / img.width, photoSize / img.height);
+        const drawW = img.width * ratio, drawH = img.height * ratio;
+        ctx.drawImage(img, px + (photoSize - drawW)/2, cursorY + (photoSize - drawH)/2, drawW, drawH);
+        ctx.restore();
+      }
+    }
+    cursorY += photoSize + 40;
+  }
+
+  // Texte du journal
+  if (entry.text) {
+    ctx.fillStyle = '#374151';
+    ctx.font = '500 34px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    const maxTextWidth = cardW - 100;
+    const maxLines = Math.floor((cardY + cardH - cursorY - 80) / 50);
+    wrapText(ctx, entry.text, cx, cursorY + 40, maxTextWidth, 50, maxLines);
+  }
+
+  // Footer KAT
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.font = '700 24px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('🐱 KAT', cx, H - 50);
+
+  // Convert to blob and share
+  canvas.toBlob(async (blob) => {
+    if (!blob) { toast('Erreur création image'); return; }
+    const file = new File([blob], `kat-journal-${dateKey}.png`, { type: 'image/png' });
+
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: 'Ma journée',
+          text: `Mon journal du ${dateStr}`
+        });
+      } catch(e) {
+        if (e.name !== 'AbortError') {
+          // Fallback: download
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = `kat-journal-${dateKey}.png`; a.click();
+          URL.revokeObjectURL(url);
+          toast('📥 Image téléchargée');
+        }
+      }
+    } else {
+      // Pas de share API → download direct
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `kat-journal-${dateKey}.png`; a.click();
+      URL.revokeObjectURL(url);
+      toast('📥 Image téléchargée');
+    }
+  }, 'image/png', 0.95);
+}
+
+async function shareJournalWeek(centerDate) {
+  toast('🎨 Création du résumé semaine...');
+
+  // 7 jours de la semaine
+  const d = new Date(centerDate + 'T12:00:00');
+  const dayOfWeek = (d.getDay() + 6) % 7; // Mon = 0
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - dayOfWeek);
+
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const day = new Date(monday);
+    day.setDate(monday.getDate() + i);
+    const dk = day.toISOString().slice(0, 10);
+    days.push({ dk, day, entry: S.journal[dk] || {} });
+  }
+
+  const hasContent = days.some(d => d.entry.mood || d.entry.text || (d.entry.photos || []).length);
+  if (!hasContent) {
+    toast('Rien à partager cette semaine 😅');
+    return;
+  }
+
+  const W = 1080, H = 1920;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  // Fond gradient
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, '#FBCFE8');
+  grad.addColorStop(1, '#F9A8D4');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Header
+  ctx.fillStyle = 'white';
+  ctx.font = '900 80px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Ma semaine 🌸', W/2, 130);
+
+  ctx.font = '500 36px -apple-system, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  const sundayDate = new Date(monday);
+  sundayDate.setDate(monday.getDate() + 6);
+  const periodStr = `${monday.getDate()} ${monday.toLocaleDateString('fr-FR', { month: 'short' })} → ${sundayDate.getDate()} ${sundayDate.toLocaleDateString('fr-FR', { month: 'short' })}`;
+  ctx.fillText(periodStr, W/2, 190);
+
+  // Grille de 7 cartes (3 + 4) ou (4 + 3)
+  const cardSize = 280;
+  const gap = 30;
+  const dayNames = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+
+  const rows = [[0,1,2,3], [4,5,6]];
+  let yOffset = 280;
+
+  for (const row of rows) {
+    const rowW = row.length * cardSize + (row.length - 1) * gap;
+    const startX = (W - rowW) / 2;
+    for (let i = 0; i < row.length; i++) {
+      const idx = row[i];
+      const d = days[idx];
+      const x = startX + i * (cardSize + gap);
+      const y = yOffset;
+
+      // Card background
+      ctx.fillStyle = 'white';
+      ctx.shadowColor = 'rgba(0,0,0,0.15)';
+      ctx.shadowBlur = 20;
+      ctx.shadowOffsetY = 10;
+      drawRoundedRect(ctx, x, y, cardSize, cardSize, 30);
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+
+      // Day label + date
+      ctx.fillStyle = '#9D174D';
+      ctx.font = '700 28px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(dayNames[idx], x + cardSize/2, y + 50);
+      ctx.fillStyle = '#1F2937';
+      ctx.font = '800 56px -apple-system, sans-serif';
+      ctx.fillText(d.day.getDate(), x + cardSize/2, y + 110);
+
+      // Photo si présente
+      const ph = d.entry.photos || [];
+      if (ph.length > 0) {
+        const img = await loadImageSafe(ph[0]);
+        if (img) {
+          const ps = 120;
+          const px = x + (cardSize - ps) / 2;
+          const py = y + 130;
+          ctx.save();
+          drawRoundedRect(ctx, px, py, ps, ps, 18);
+          ctx.clip();
+          const ratio = Math.max(ps / img.width, ps / img.height);
+          const drawW = img.width * ratio, drawH = img.height * ratio;
+          ctx.drawImage(img, px + (ps-drawW)/2, py + (ps-drawH)/2, drawW, drawH);
+          ctx.restore();
+        }
+      } else if (d.entry.mood) {
+        // Mood emoji centered
+        ctx.font = '90px -apple-system, sans-serif';
+        ctx.fillText(d.entry.mood, x + cardSize/2, y + 200);
+      } else {
+        ctx.fillStyle = '#D1D5DB';
+        ctx.font = '60px -apple-system, sans-serif';
+        ctx.fillText('·', x + cardSize/2, y + 210);
+      }
+
+      // Mood badge bottom right si photo + mood
+      if (d.entry.mood && ph.length > 0) {
+        ctx.font = '50px -apple-system, sans-serif';
+        ctx.fillText(d.entry.mood, x + cardSize - 50, y + cardSize - 30);
+      }
+    }
+    yOffset += cardSize + gap;
+  }
+
+  // Footer
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.font = '700 30px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('🐱 KAT', W/2, H - 60);
+
+  canvas.toBlob(async (blob) => {
+    if (!blob) { toast('Erreur'); return; }
+    const file = new File([blob], `kat-semaine.png`, { type: 'image/png' });
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'Ma semaine', text: 'Ma semaine en images 🌸' });
+      } catch(e) {
+        if (e.name !== 'AbortError') {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = `kat-semaine.png`; a.click();
+          URL.revokeObjectURL(url);
+        }
+      }
+    } else {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `kat-semaine.png`; a.click();
+      URL.revokeObjectURL(url);
+      toast('📥 Image téléchargée');
+    }
+  }, 'image/png', 0.95);
+}
+
 function exportJournalPdf() {
   const entries = Object.entries(S.journal).sort((a,b) => a[0].localeCompare(b[0]));
   if (!entries.length) { toast('Aucune entrée journal'); return; }
