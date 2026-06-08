@@ -4734,10 +4734,27 @@ setInterval(() => {
   }
 }, 60 * 1000);
 
+// Keepalive: tant que l'app est ouverte, on garde Render éveillé (ping /api/cron toutes les 2 min)
+// → pendant l'usage, les rappels partent à l'heure. Pour le 24/7 complet, un cron externe est requis.
+function startServerKeepalive() {
+  const ping = () => {
+    if (document.visibilityState === 'visible') {
+      fetch('/api/cron', { method: 'GET', cache: 'no-store' }).catch(() => {});
+    }
+  };
+  ping(); // immédiat au boot
+  setInterval(ping, 2 * 60 * 1000);
+  // Ping aussi dès qu'elle revient sur l'app (réveille le serveur tout de suite)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') ping();
+  });
+}
+
 async function boot() {
   await loadAll();
   initDark();
   render();
+  startServerKeepalive();
   // Register Service Worker for Web Push notifications
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js')
