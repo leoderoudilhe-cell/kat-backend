@@ -85,6 +85,7 @@ function saveData(d) {
   try {
     d._pushSubs = _pushSubs;
     d._updatedAt = Date.now();
+    _dataModifiedTs = d._updatedAt; // FIX B1: signale aux autres appareils qu'il y a du nouveau
     // Write atomically: tmp file puis rename (évite corruption en cas de crash)
     const tmp = DATA_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(d, null, 2));
@@ -505,7 +506,8 @@ app.post('/api/data', (req, res) => {
     if (b.todos !== undefined) {
       const incomingCount = Object.values(b.todos).reduce((a,v) => a + (Array.isArray(v) ? v.length : 0), 0);
       const existingCount = Object.values(d.todos || {}).reduce((a,v) => a + (Array.isArray(v) ? v.length : 0), 0);
-      if (incomingCount > 0 || existingCount === 0) {
+      // Accepte si: incoming a des données, OU serveur vide, OU incoming >= moitié (suppression légitime)
+      if (incomingCount > 0 || existingCount === 0 || incomingCount >= existingCount * 0.5) {
         d.todos = b.todos;
       }
     }
@@ -521,7 +523,10 @@ app.post('/api/data', (req, res) => {
     if (b.ptodos !== undefined) {
       if (b.ptodos.length > 0 || !d.ptodos || d.ptodos.length === 0) d.ptodos = b.ptodos;
     }
-    if (b.settings !== undefined) d.settings = b.settings;
+    if (b.settings !== undefined) {
+      // Merge: ne pas perdre les settings serveur non envoyés par le client
+      d.settings = { ...(d.settings || {}), ...b.settings };
+    }
     if (b.journal !== undefined && b.journal !== null) {
       if (!d.journal) d.journal = {};
       for (const [k, v] of Object.entries(b.journal)) {
@@ -793,7 +798,7 @@ async function sendPushToAll(title, body, opts = {}) {
   // Remove dead subscriptions
   if (dead.length) {
     _pushSubs = _pushSubs.filter(s => !dead.includes(s.endpoint));
-    saveData(loadData());
+    savePushSubs();
   }
 }
 
@@ -802,8 +807,7 @@ function scheduleDailyJournalReminder() {
   const now = new Date();
   // 18h Paris time = 16h UTC (summer) or 17h UTC (winter)
   const nowDate = new Date();
-  const isSummer = (nowDate.getMonth() + 1) >= 4 && (nowDate.getMonth() + 1) <= 10;
-  const parisOffset = isSummer ? 2 : 1;
+  const parisOffset = parisIsDST(nowDate.getUTCFullYear(), nowDate.getUTCMonth()+1, nowDate.getUTCDate()) ? 2 : 1;
   const target18hUTC = new Date();
   target18hUTC.setUTCHours(18 - parisOffset, 0, 0, 0);
   const target = target18hUTC;
@@ -841,11 +845,23 @@ function scheduleDailyJournalReminder() {
 // Called when events are updated — schedule push for each reminder
 let _scheduledPushes = {};
 // Convert Paris local time to UTC ms
+function parisIsDST(y, m, d) {
+  // Heure d'été UE: du dernier dimanche de mars au dernier dimanche d'octobre
+  function lastSunday(year, month) { // month 1-12
+    const last = new Date(Date.UTC(year, month, 0)); // dernier jour du mois
+    return last.getUTCDate() - last.getUTCDay();
+  }
+  if (m < 3 || m > 10) return false;
+  if (m > 3 && m < 10) return true;
+  if (m === 3) return d >= lastSunday(y, 3);
+  if (m === 10) return d < lastSunday(y, 10);
+  return false;
+}
 function parisToUTC(dk, timeStr) {
-  const [y,mo,d] = dk.split('-').map(Number);
+  const [y,m,d] = dk.split('-').map(Number);
   const [h,mi] = (timeStr||'09:00').split(':').map(Number);
-  const isSummer = mo >= 4 && mo <= 10;
-  return Date.UTC(y, mo-1, d, h - (isSummer ? 2 : 1), mi, 0);
+  const offset = parisIsDST(y, m, d) ? 2 : 1;
+  return Date.UTC(y, m-1, d, h - offset, mi, 0);
 }
 
 // Keep track of already-sent reminders to avoid duplicates
@@ -889,8 +905,12 @@ function checkEventReminders() {
       }
     }
   }
-  // Clean old entries from sent set (keep only last hour)
-  if (_sentReminders.size > 1000) _sentReminders.clear();
+  // Éviction douce: on garde le set borné sans tout vider (évite re-déclenchement)
+  if (_sentReminders.size > 2000) {
+    const arr = [..._sentReminders];
+    _sentReminders.clear();
+    arr.slice(-1000).forEach(k => _sentReminders.add(k)); // garde les 1000 plus récents
+  }
 }
 
 // Legacy — kept for backward compatibility

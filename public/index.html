@@ -1007,6 +1007,28 @@ function setSyncDot(state) {
   }
 }
 // Smart sync: returns true if data actually changed
+// Merge d'une entrée journal: le plus récent (_ts) gagne pour mood/text/date.
+// Photos: on garde le set le plus grand (évite de perdre des photos pleine résolution locales).
+function mergeJournalEntry(local, remote) {
+  local = local || {}; remote = remote || {};
+  const lts = local._ts || 0, rts = remote._ts || 0;
+  const winner = rts > lts ? remote : local;  // le plus récent gagne pour le contenu texte
+  const localPhotos = Array.isArray(local.photos) ? local.photos : [];
+  const remotePhotos = Array.isArray(remote.photos) ? remote.photos : [];
+  // Photos: si l'un est plus récent ET a des photos, on prend les siennes; sinon le plus grand set
+  let photos;
+  if (rts > lts && remotePhotos.length) photos = remotePhotos;
+  else if (lts >= rts && localPhotos.length) photos = localPhotos;
+  else photos = localPhotos.length >= remotePhotos.length ? localPhotos : remotePhotos;
+  return {
+    mood: winner.mood || '',
+    text: (winner.text !== undefined ? winner.text : (local.text || remote.text || '')),
+    date: winner.date || local.date || remote.date,
+    _ts: Math.max(lts, rts),
+    photos: photos || []
+  };
+}
+
 async function smartSyncFromServer() {
   try {
     const resp = await fetch('/api/data', { signal: AbortSignal.timeout(10000) });
@@ -1055,18 +1077,11 @@ async function smartSyncFromServer() {
         const serverStr = JSON.stringify(data.cats);
         if (serverStr !== JSON.stringify(S.cats)) { S.cats = data.cats; changed = true; }
       }
-      // Journal merge (photos locales priorité)
+      // Journal merge: le plus récent (_ts) gagne pour mood/text/date; photos = max des deux
       if (data.journal) {
         for (const [k, entry] of Object.entries(data.journal)) {
           const local = S.journal[k] || {};
-          // Merge intelligent: garde la valeur non-vide (local OU server)
-          const merged = {
-            mood:  (entry.mood && entry.mood.length)  ? entry.mood  : local.mood,
-            text:  (entry.text && entry.text.length > local.text?.length) ? entry.text : (local.text || entry.text || ''),
-            date:  entry.date || local.date,
-            photos: ((local.photos?.length || 0) >= (entry.photos?.length || 0)) ? local.photos : entry.photos,
-          };
-          if (!merged.photos) merged.photos = [];
+          const merged = mergeJournalEntry(local, entry);
           if (JSON.stringify(merged) !== JSON.stringify(local)) {
             S.journal[k] = merged;
             changed = true;
@@ -1118,12 +1133,7 @@ async function syncFromServer() {
       for (const [k, entry] of Object.entries(data.journal)) {
         const local = S.journal[k] || {};
         // Merge intelligent: garde valeur non-vide
-        S.journal[k] = {
-          mood:  (entry.mood && entry.mood.length)  ? entry.mood  : local.mood,
-          text:  (entry.text && entry.text.length > (local.text?.length || 0)) ? entry.text : (local.text || entry.text || ''),
-          date:  entry.date || local.date,
-          photos: ((local.photos?.length || 0) >= (entry.photos?.length || 0)) ? (local.photos || []) : (entry.photos || []),
-        };
+        S.journal[k] = mergeJournalEntry(local, entry);
       }
     }
     await idbSet('kv','events',  S.events);
@@ -1197,16 +1207,22 @@ async function pushToServer() {
       signal: AbortSignal.timeout(30000), // 30s — handles Render wake-up
     });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    _pushRetries = 0; // reset compteur de retry au succès
     setSyncDot('ok');
   } catch(e) {
     console.warn('Push to server failed:', e.name, e.message);
     setSyncDot('err');
-    // Retry once after 5 seconds if not a permanent error
-    if (e.name === 'AbortError' || e.message?.includes('fetch')) {
-      setTimeout(() => pushToServer().catch(() => {}), 5000);
+    // Retry avec backoff limité (max 3 tentatives) — évite la boucle infinie hors-ligne
+    if ((e.name === 'AbortError' || e.message?.includes('fetch') || e.message?.includes('HTTP 5'))) {
+      _pushRetries = (_pushRetries || 0) + 1;
+      if (_pushRetries <= 3) {
+        clearTimeout(_pushRetryTimer);
+        _pushRetryTimer = setTimeout(() => pushToServer().catch(() => {}), 5000 * _pushRetries);
+      }
     }
   }
 }
+let _pushRetries = 0, _pushRetryTimer = null;
 
 // ═══ CATS ═══
 const DEFAULT_CATS = [
@@ -2387,7 +2403,7 @@ function renderJournal(container) {
       // AUTO-SAVE: dès qu'elle clique sur un mood, on sauvegarde immédiatement
       if (!S.journal[S.date]) S.journal[S.date] = {};
       S.journal[S.date].mood = _selectedMood;
-      S.journal[S.date].date = S.date;
+      S.journal[S.date].date = S.date; S.journal[S.date]._ts = Date.now();
       await saveData();
       if (isToday(S.date)) {
         localStorage.setItem('kat_journal_filled_' + S.date, '1');
@@ -2406,7 +2422,7 @@ function renderJournal(container) {
         const text = journalTextarea.value;
         if (!S.journal[S.date]) S.journal[S.date] = {};
         S.journal[S.date].text = text;
-        S.journal[S.date].date = S.date;
+        S.journal[S.date].date = S.date; S.journal[S.date]._ts = Date.now();
         if (_selectedMood) S.journal[S.date].mood = _selectedMood;
         await saveData();
         if (isToday(S.date) && (text.length > 0 || _selectedMood)) {
@@ -2421,7 +2437,7 @@ function renderJournal(container) {
       const text = journalTextarea.value;
       if (!S.journal[S.date]) S.journal[S.date] = {};
       S.journal[S.date].text = text;
-      S.journal[S.date].date = S.date;
+      S.journal[S.date].date = S.date; S.journal[S.date]._ts = Date.now();
       if (_selectedMood) S.journal[S.date].mood = _selectedMood;
       await saveData();
     });
@@ -2440,7 +2456,7 @@ function renderJournal(container) {
     if (!S.journal[S.date]) S.journal[S.date] = {};
     if (_selectedMood) S.journal[S.date].mood = _selectedMood;
     S.journal[S.date].text = text;
-    S.journal[S.date].date = S.date;
+    S.journal[S.date].date = S.date; S.journal[S.date]._ts = Date.now();
     // Mark today filled for reminder
     if (isToday(S.date)) {
       localStorage.setItem('kat_journal_filled_' + S.date, '1');
@@ -2468,7 +2484,7 @@ function renderJournal(container) {
       }
       if (!S.journal[S.date]) S.journal[S.date] = {};
       S.journal[S.date].photos = existing; // stocké uniquement dans S.journal, pas en double dans blobs
-      S.journal[S.date].date = S.date;
+      S.journal[S.date].date = S.date; S.journal[S.date]._ts = Date.now();
       // Marquer journal rempli si photo ajoutée aujourd'hui
       if (isToday(S.date)) {
         localStorage.setItem('kat_journal_filled_' + S.date, '1');
@@ -3882,52 +3898,16 @@ async function showBriefing() {
 function closeBriefing() { document.getElementById('briefing-overlay').classList.remove('open'); }
 
 // ═══ DAILY REMINDER ═══
+// Le rappel journal 18h est désormais géré CÔTÉ SERVEUR via Web Push
+// (fonctionne même app fermée). Cette fonction se contente d'assurer la permission.
 async function scheduleDailyReminder() {
-  const today = dateKey(new Date());
-  const filled = localStorage.getItem('kat_journal_filled_' + today);
-  if (filled) { cancelDailyReminder(); return; }
-
   if (!('Notification' in window)) return;
-  const perm = await Notification.requestPermission();
-  if (perm !== 'granted') return;
-
-  const now = new Date();
-  const target = new Date();
-  target.setHours(18, 0, 0, 0);
-
-  const fire = async () => {
-    const todayCheck = dateKey(new Date());
-    const filledCheck = localStorage.getItem('kat_journal_filled_' + todayCheck);
-    if (filledCheck) { cancelDailyReminder(); return; }
-
-    const sound = await idbGet('blobs', 'sound');
-    if (sound) {
-      try {
-        if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume();
-        const audio = new Audio(sound);
-        audio.play().catch(()=>{});
-      } catch(e){}
-    }
-    new Notification('KAT 🐱', { body: 'Tu n\'as pas encore rempli ton journal aujourd\'hui !', icon: '/favicon.ico' });
-
-    _reminderInterval = setInterval(async () => {
-      const todayNow = dateKey(new Date());
-      const filledNow = localStorage.getItem('kat_journal_filled_' + todayNow);
-      if (filledNow) { cancelDailyReminder(); return; }
-      new Notification('KAT 🐱', { body: 'N\'oublie pas ton journal ! 📔' });
-    }, 30 * 60 * 1000);
-  };
-
-  const delay = target.getTime() - now.getTime();
-  if (delay > 0) {
-    setTimeout(fire, delay);
-  } else {
-    await fire();
+  if (Notification.permission === 'default') {
+    try { await Notification.requestPermission(); } catch(e) {}
   }
 }
 function cancelDailyReminder() {
-  clearInterval(_reminderInterval);
-  _reminderInterval = null;
+  if (_reminderInterval) { clearInterval(_reminderInterval); _reminderInterval = null; }
 }
 
 // ═══ MÉTÉO WIDGET ═══
