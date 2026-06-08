@@ -1564,13 +1564,7 @@ function renderDay(container) {
               style="display:inline-flex;align-items:center;gap:3px;background:rgba(255,255,255,0.25);border:none;border-radius:6px;padding:3px 8px;color:white;font-size:10px;font-weight:600;cursor:pointer;margin-top:4px;font-family:inherit;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-height:22px"
               title="Ouvrir dans Plans">📍 ${escHtml(ev.location.split(',')[0])}</button>` : ''}
           </div>
-          <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0;align-items:center">
-            <button class="ev-done-btn" data-ev-id="${escHtml(ev.id)}" data-orig="${escHtml(originalKey)}" data-dk="${escHtml(dk)}"
-              style="width:30px;height:30px;border-radius:50%;border:2.5px solid ${evDone?'white':'rgba(255,255,255,0.9)'};background:${evDone?'rgba(255,255,255,0.35)':'rgba(255,255,255,0.15)'};color:white;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;backdrop-filter:blur(8px)"
-              title="Marquer fait / Supprimer">
-              ${evDone?'✓':''}
-            </button>
-          </div>
+
         </div>`;
       }
     }
@@ -1778,6 +1772,7 @@ function attachEventHandlers(container) {
     }
 
     function endDrag(commit) {
+      clearLongPressVisual();
       if (!dragging) return;
       dragging = false;
       el.style.transform = originalTransform;
@@ -1788,18 +1783,45 @@ function attachEventHandlers(container) {
       document.body.style.overscrollBehavior = '';
     }
 
+    let longPressTimer = null;
+    let longPressVisual = null;
+    let longPressTriggered = false;
+
+    function clearLongPressVisual() {
+      if (longPressVisual) {
+        longPressVisual.remove();
+        longPressVisual = null;
+      }
+      el.style.transform = originalTransform || '';
+    }
+
     el.addEventListener('touchstart', e => {
-      if (e.target.closest('.ev-done-btn') || e.target.closest('.ev-map-btn')) return;
+      if (e.target.closest('.ev-map-btn')) return;
       const touch = e.touches[0];
       startY = touch.clientY;
       startTop = parseInt(el.style.top) || 0;
+      longPressTriggered = false;
       const ev = getEvent();
       if (!ev) return;
       const [h, m] = (ev.time || '06:00').split(':').map(Number);
       startTimeMin = h * 60 + m;
 
+      // ── Timer 1 : 350ms = DRAG ──
+      // ── Visuel : barre de progression de suppression dès le touchstart ──
+      const progressBar = document.createElement('div');
+      progressBar.style.cssText = 'position:absolute;left:0;top:0;height:100%;width:0;background:rgba(255,255,255,0.5);border-radius:10px;pointer-events:none;transition:width 1.2s linear;z-index:1';
+      el.style.position = 'absolute';
+      el.appendChild(progressBar);
+      longPressVisual = progressBar;
+      // Force reflow then set width to 100% over 1.2s
+      requestAnimationFrame(() => {
+        if (longPressVisual === progressBar) progressBar.style.width = '100%';
+      });
+
       pressTimer = setTimeout(() => {
-        // ENTRE EN MODE DRAG
+        if (longPressTriggered) return;
+        // Si elle bouge dans cette fenêtre → mode drag
+        // (on garde la barre visible pour qu'elle voie qu'elle peut encore appuyer)
         dragging = true;
         haptic([50, 30, 50]);
         originalTransform = el.style.transform || '';
@@ -1807,14 +1829,61 @@ function attachEventHandlers(container) {
         el.style.opacity = '0.9';
         el.style.boxShadow = '0 8px 24px rgba(0,0,0,0.3)';
         el.style.transition = 'box-shadow .15s, opacity .15s';
-        // Empêche scroll pendant drag
         document.body.style.overscrollBehavior = 'contain';
+        clearLongPressVisual(); // si elle bouge, on retire la barre
       }, 350);
+
+      // ── Timer 2 : 1200ms = SUPPRESSION (si elle reste appuyée sans bouger) ──
+      longPressTimer = setTimeout(() => {
+        if (dragging) return; // déjà en drag → annule la suppression
+        longPressTriggered = true;
+        // Stop drag mode si activé
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        dragging = false;
+        el.style.zIndex = '';
+        el.style.opacity = '';
+        el.style.boxShadow = '';
+        el.style.transition = '';
+        document.body.style.overscrollBehavior = '';
+
+        // ANIMATION SUPPRESSION
+        haptic([100, 50, 100, 50, 200]);
+        el.style.transition = 'all .4s cubic-bezier(.5,-.5,.5,1.5)';
+        el.style.transform = 'scale(0.85) rotate(-3deg)';
+        el.style.opacity = '0';
+        el.style.boxShadow = '0 0 40px rgba(255,255,255,0.6)';
+
+        // SUPPRESSION RÉELLE après l'animation
+        setTimeout(async () => {
+          const ev = getEvent();
+          if (!ev) return;
+          const evId = el.dataset.evId;
+          const date = el.dataset.evDate;
+          // Confetti
+          if (typeof launchConfetti === 'function') launchConfetti();
+          // Supprimer de KAT
+          const idx = (S.events[date] || []).findIndex(e => e.id === evId);
+          if (idx !== -1) S.events[date].splice(idx, 1);
+          // Supprimer d'iCloud Apple Calendar
+          fetch('/api/delete-event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ evId })
+          }).catch(() => {});
+          await saveData();
+          render();
+          toast('🎉 Événement terminé et supprimé !');
+        }, 400);
+      }, 1200);
     }, { passive: true });
 
     el.addEventListener('touchmove', e => {
+      // Annule la suppression dès qu'elle bouge un peu
+      if (Math.abs(e.touches[0].clientY - startY) > 5) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
       if (!dragging) {
-        // Cancel long press si elle bouge trop
         if (Math.abs(e.touches[0].clientY - startY) > 8) {
           clearTimeout(pressTimer);
           pressTimer = null;
@@ -1832,7 +1901,10 @@ function attachEventHandlers(container) {
 
     el.addEventListener('touchend', async e => {
       clearTimeout(pressTimer);
-      if (!dragging) return;
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+      if (longPressTriggered) return; // suppression déjà en cours
+      if (!dragging) { clearLongPressVisual(); return; }
       const wasD = dragging;
       const finalTop = parseInt(el.style.top) || 0;
       endDrag(true);
@@ -1860,13 +1932,14 @@ function attachEventHandlers(container) {
 
     el.addEventListener('touchcancel', () => {
       clearTimeout(pressTimer);
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
       endDrag(false);
     }, { passive: true });
 
-    // Tap normal (pas de long press, pas de drag) → ouvre modal
     el.addEventListener('click', e => {
-      if (dragging) { e.preventDefault(); e.stopPropagation(); return; }
-      if (e.target.closest('.ev-done-btn') || e.target.closest('.ev-map-btn')) return;
+      if (dragging || longPressTriggered) { e.preventDefault(); e.stopPropagation(); return; }
+      if (e.target.closest('.ev-map-btn')) return;
       e.stopPropagation();
       openEventModal(el.dataset.evDate, el.dataset.evId);
     });
