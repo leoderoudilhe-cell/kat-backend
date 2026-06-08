@@ -1409,7 +1409,22 @@ function render() {
   if (S.tab === 'calendar') {
     document.getElementById('view-tabs').style.display = '';
     document.getElementById('date-nav').style.display = '';
-    if (S.view === 'day')   renderDay(content);
+    if (S.view === 'day') {
+      renderDay(content);
+      if (S.date === dateKey(new Date())) {
+        setTimeout(() => {
+          const grid = document.getElementById('hour-grid');
+          if (grid && !grid._scrolledToNow) {
+            const now = new Date();
+            const nowH = now.getHours();
+            if (nowH >= 6 && nowH <= 22) {
+              grid.scrollTop = Math.max(0, (nowH - 7) * 80);
+              grid._scrolledToNow = true;
+            }
+          }
+        }, 50);
+      }
+    }
     else if (S.view === 'week')  renderWeek(content);
     else if (S.view === 'month') renderMonth(content);
   } else if (S.tab === 'todos') {
@@ -1498,6 +1513,21 @@ function renderDay(container) {
   html += `<div class="card"><div class="section">
     <div class="section-title">Événements (${evList.length}) <span style="font-size:11px;color:var(--text3)">Tapez un créneau pour ajouter</span></div>
     <div id="hour-grid" style="position:relative;height:${17*80}px;overflow-y:auto">`;
+  // ── Barre "current time" si on est sur aujourd'hui ──
+  const isViewingToday = S.date === dateKey(new Date());
+  if (isViewingToday) {
+    const now = new Date();
+    const nowH = now.getHours();
+    const nowM = now.getMinutes();
+    if (nowH >= 6 && nowH <= 22) {
+      const nowTop = (nowH - 6) * 80 + (nowM / 60) * 80;
+      html += `<div id="current-time-line" style="position:absolute;top:${nowTop}px;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--kat) 0%,var(--kat2) 100%);z-index:10;pointer-events:none;box-shadow:0 0 8px rgba(244,114,182,0.6)">
+        <div style="position:absolute;left:30px;top:-14px;width:28px;height:28px;background:white;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;font-size:18px">🐱</div>
+        <div style="position:absolute;right:6px;top:-10px;background:var(--kat);color:white;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,0.15)">${String(nowH).padStart(2,'0')}:${String(nowM).padStart(2,'0')}</div>
+      </div>`;
+    }
+  }
+
   // Lignes horaires
   for (let h = 6; h <= 22; h++) {
     const top = (h - 6) * 80;
@@ -4736,6 +4766,30 @@ async function syncFromAppleCalendar() {
 
 // ═══ BOOT ═══
 let _swReg = null; // Global SW registration
+
+// Auto-update current time line every 60s
+setInterval(() => {
+  if (S.tab === 'calendar' && S.view === 'day' && S.date === dateKey(new Date())) {
+    // Move the existing line instead of re-rendering everything
+    const line = document.getElementById('current-time-line');
+    const now = new Date();
+    const nowH = now.getHours();
+    const nowM = now.getMinutes();
+    if (nowH >= 6 && nowH <= 22) {
+      const newTop = (nowH - 6) * 80 + (nowM / 60) * 80;
+      if (line) {
+        line.style.top = newTop + 'px';
+        const timeBadge = line.querySelector('div:last-child');
+        if (timeBadge) timeBadge.textContent = `${String(nowH).padStart(2,'0')}:${String(nowM).padStart(2,'0')}`;
+      } else {
+        // Force re-render si la barre n'existe pas encore
+        render();
+      }
+    } else if (line) {
+      line.remove();
+    }
+  }
+}, 60 * 1000);
 
 async function boot() {
   await loadAll();
