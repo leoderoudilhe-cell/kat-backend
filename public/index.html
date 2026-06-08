@@ -1497,11 +1497,11 @@ function renderDay(container) {
   // Grille horaire scrollable (06h-23h)
   html += `<div class="card"><div class="section">
     <div class="section-title">Événements (${evList.length}) <span style="font-size:11px;color:var(--text3)">Tapez un créneau pour ajouter</span></div>
-    <div id="hour-grid" style="position:relative;height:${17*64}px;overflow-y:auto">`;
+    <div id="hour-grid" style="position:relative;height:${17*80}px;overflow-y:auto">`;
   // Lignes horaires
   for (let h = 6; h <= 22; h++) {
-    const top = (h - 6) * 64;
-    html += `<div class="hour-slot" data-hour="${h}" style="position:absolute;top:${top}px;left:0;right:0;height:64px;border-top:1px solid var(--border);display:flex;align-items:flex-start;padding:2px 4px;cursor:pointer">
+    const top = (h - 6) * 80;
+    html += `<div class="hour-slot" data-hour="${h}" style="position:absolute;top:${top}px;left:0;right:0;height:80px;border-top:1px solid var(--border);display:flex;align-items:flex-start;padding:2px 4px;cursor:pointer">
       <span style="font-size:11px;color:var(--text3);width:36px;flex-shrink:0">${String(h).padStart(2,'0')}:00</span>
     </div>`;
   }
@@ -1539,31 +1539,34 @@ function renderDay(container) {
     if (ev.time) {
       const [h, m] = ev.time.split(':').map(Number);
       if (h >= 6 && h <= 22) {
-        const top = (h - 6) * 64 + (m / 60) * 64;
-        const dur = (ev.duration || 60) / 60 * 64;
+        const top = (h - 6) * 80 + (m / 60) * 80;
+        const dur = (ev.duration || 60) / 60 * 80;
         const cat = getCat(ev.catId);
         const color = cat.color; // toujours couleur de la catégorie
         const evDone = isEventDone(ev, dk);
-        const blockH = Math.max(dur, 32);
+        const blockH = Math.max(dur, 56); // min 56px pour bien voir
         const isLonger = overlapInfo.get(ev.id);
-        // Si event plus long en chevauchement → opacity 0.55 + z-index 1 (en arrière)
-        // Sinon → opacity 1 + z-index 3 (en avant)
         const blockOpacity = evDone ? 0.45 : (isLonger ? 0.55 : 1);
         const blockZIndex = isLonger ? 1 : 3;
-        // Bordure pour mieux distinguer
         const borderStyle = isLonger ? `border:2px solid ${escHtml(color)};` : '';
+        // Emoji taille adaptée à la hauteur du bloc (gros pour les blocs grands)
+        const emojiSize = blockH >= 100 ? 32 : (blockH >= 70 ? 26 : 22);
+        const titleSize = blockH >= 70 ? 16 : 14;
+        const showLocation = blockH >= 80;
+
         html += `<div class="ev-positioned" data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(originalKey)}" data-ev-dk="${escHtml(dk)}"
-          style="position:absolute;top:${top}px;left:44px;right:4px;height:${blockH}px;background:${evDone?'#8E8E93':escHtml(color)};${borderStyle}border-radius:6px;padding:4px 6px;cursor:pointer;overflow:hidden;z-index:${blockZIndex};display:flex;align-items:flex-start;gap:4px;opacity:${blockOpacity}">
+          style="position:absolute;top:${top}px;left:44px;right:4px;height:${blockH}px;background:${evDone?'#8E8E93':escHtml(color)};${borderStyle}border-radius:10px;padding:8px 10px;cursor:pointer;overflow:hidden;z-index:${blockZIndex};display:flex;align-items:center;gap:10px;opacity:${blockOpacity};box-shadow:0 2px 6px rgba(0,0,0,0.12)">
+          <div style="font-size:${emojiSize}px;line-height:1;flex-shrink:0;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.2))">${cat.emoji}</div>
           <div style="flex:1;min-width:0;overflow:hidden">
-            <div style="font-size:12px;font-weight:700;color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${evDone?'text-decoration:line-through':''}">${escHtml(ev.title)}</div>
-            ${ev.time ? `<div style="font-size:10px;color:rgba(255,255,255,0.8)">${escHtml(ev.time)}${ev.duration?' · '+ev.duration+'min':''}</div>` : ''}
-            ${ev.location ? `<button class="ev-map-btn" data-loc="${escHtml(ev.location)}"
-              style="display:inline-flex;align-items:center;gap:3px;background:rgba(255,255,255,0.25);border:none;border-radius:4px;padding:2px 7px;color:white;font-size:10px;font-weight:500;cursor:pointer;margin-top:3px;font-family:inherit;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;text-decoration:underline;min-height:22px"
+            <div style="font-size:${titleSize}px;font-weight:800;color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${evDone?'text-decoration:line-through':''};line-height:1.2;text-shadow:0 1px 2px rgba(0,0,0,0.15)">${escHtml(ev.title)}</div>
+            ${ev.time ? `<div style="font-size:11px;color:rgba(255,255,255,0.95);font-weight:600;margin-top:2px">${escHtml(ev.time)}${ev.duration?' · '+formatDur(ev.duration):''}</div>` : ''}
+            ${ev.location && showLocation ? `<button class="ev-map-btn" data-loc="${escHtml(ev.location)}"
+              style="display:inline-flex;align-items:center;gap:3px;background:rgba(255,255,255,0.25);border:none;border-radius:6px;padding:3px 8px;color:white;font-size:10px;font-weight:600;cursor:pointer;margin-top:4px;font-family:inherit;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-height:22px"
               title="Ouvrir dans Plans">📍 ${escHtml(ev.location.split(',')[0])}</button>` : ''}
           </div>
           <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0;align-items:center">
             <button class="ev-done-btn" data-ev-id="${escHtml(ev.id)}" data-orig="${escHtml(originalKey)}" data-dk="${escHtml(dk)}"
-              style="width:24px;height:24px;border-radius:50%;border:2px solid ${evDone?'white':'rgba(255,255,255,0.8)'};background:${evDone?'rgba(255,255,255,0.35)':'none'};color:white;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"
+              style="width:30px;height:30px;border-radius:50%;border:2.5px solid ${evDone?'white':'rgba(255,255,255,0.9)'};background:${evDone?'rgba(255,255,255,0.35)':'rgba(255,255,255,0.15)'};color:white;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;backdrop-filter:blur(8px)"
               title="Marquer fait / Supprimer">
               ${evDone?'✓':''}
             </button>
@@ -1747,7 +1750,7 @@ function attachEventHandlers(container) {
       const h = parseInt(slot.dataset.hour);
       const rect = slot.getBoundingClientRect();
       const relY = e.clientY - rect.top;
-      const mins = Math.floor(relY / 64 * 60 / 15) * 15;
+      const mins = Math.floor(relY / 80 * 60 / 15) * 15;
       const timeStr = `${String(h).padStart(2,'0')}:${String(mins).padStart(2,'0')}`;
       openEventModal(S.date);
       setTimeout(() => { document.getElementById('ev-time').value = timeStr; }, 50);
@@ -1823,7 +1826,7 @@ function attachEventHandlers(container) {
       const dy = touch.clientY - startY;
       const newTop = Math.max(0, startTop + dy);
       // Snap visuel toutes les 15min (16px)
-      const snappedTop = Math.round(newTop / 16) * 16;
+      const snappedTop = Math.round(newTop / 20) * 20;
       el.style.top = snappedTop + 'px';
     }, { passive: false });
 
@@ -1835,7 +1838,7 @@ function attachEventHandlers(container) {
       endDrag(true);
 
       // Calcul nouvelle heure (top relatif au 06h = 0px)
-      const totalMin = Math.round(finalTop / 64 * 60 / 15) * 15;
+      const totalMin = Math.round(finalTop / 80 * 60 / 15) * 15;
       const newH = 6 + Math.floor(totalMin / 60);
       const newM = totalMin % 60;
       if (newH < 6 || newH > 22) return; // hors plage
@@ -2484,6 +2487,14 @@ document.getElementById('lightbox').addEventListener('touchend', e => {
 
 // ═══ EVENT MODAL ═══
 // ─── Helpers heure/durée ───
+function formatDur(mins) {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return m + 'min';
+  if (m === 0) return h + 'h';
+  return h + 'h' + String(m).padStart(2,'0');
+}
+
 function addMinutesToTime(timeStr, mins) {
   const [h, m] = timeStr.split(':').map(Number);
   const total = h * 60 + m + (mins || 0);
