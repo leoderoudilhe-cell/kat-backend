@@ -34,6 +34,7 @@ function loadPushSubs() {
 
 function savePushSubs() {
   try { fs.writeFileSync(SUBS_FILE, JSON.stringify(_pushSubs)); } catch(e) {}
+  persistSubsToGitHub(); // persiste aussi sur GitHub (survit aux redémarrages Render)
 }
 
 const DEFAULT = {
@@ -270,6 +271,82 @@ async function loadFromGitHub() {
     }
   } catch(e) { console.warn('GitHub load error:', e.message); }
   return null;
+}
+
+// ═══ PERSISTANCE GITHUB DES SOUSCRIPTIONS PUSH (survit aux redémarrages) ═══
+const GH_SUBS_PATH = 'data/push-subs.json';
+let _subsSha = null;
+
+function ghGet(path) {
+  return new Promise((resolve) => {
+    if (!GH_TOKEN) return resolve(null);
+    const req = https.request({
+      hostname: 'api.github.com', path: `/repos/${GH_OWNER}/${GH_REPO}/contents/${path}`,
+      method: 'GET',
+      headers: { Authorization: `token ${GH_TOKEN}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'KAT/3.0' }
+    }, res => { let d=''; res.on('data',c=>d+=c); res.on('end',()=>{ try{resolve({s:res.statusCode,b:JSON.parse(d)});}catch{resolve({s:res.statusCode,b:{}});} }); });
+    req.on('error', () => resolve(null));
+    req.end();
+  });
+}
+
+function ghPutJSON(path, obj, sha) {
+  return new Promise((resolve) => {
+    if (!GH_TOKEN) return resolve(null);
+    const body = JSON.stringify({
+      message: 'KAT push subs',
+      content: Buffer.from(JSON.stringify(obj)).toString('base64'),
+      ...(sha ? { sha } : {})
+    });
+    const b = Buffer.from(body);
+    const req = https.request({
+      hostname: 'api.github.com', path: `/repos/${GH_OWNER}/${GH_REPO}/contents/${path}`,
+      method: 'PUT',
+      headers: { Authorization: `token ${GH_TOKEN}`, Accept: 'application/vnd.github.v3+json', 'User-Agent': 'KAT/3.0', 'Content-Type': 'application/json', 'Content-Length': b.length }
+    }, res => { let d=''; res.on('data',c=>d+=c); res.on('end',()=>{ try{resolve({s:res.statusCode,b:JSON.parse(d)});}catch{resolve({s:res.statusCode,b:{}});} }); });
+    req.on('error', () => resolve(null));
+    req.write(b);
+    req.end();
+  });
+}
+
+let _subsPersistTimer = null;
+function persistSubsToGitHub() {
+  // Debounce léger pour grouper plusieurs souscriptions rapprochées
+  clearTimeout(_subsPersistTimer);
+  _subsPersistTimer = setTimeout(async () => {
+    if (!GH_TOKEN) return;
+    try {
+      if (!_subsSha) { const r = await ghGet(GH_SUBS_PATH); if (r && r.s === 200) _subsSha = r.b.sha; }
+      const payload = { subs: _pushSubs, sent: [..._sentReminders].slice(-500) };
+      const res = await ghPutJSON(GH_SUBS_PATH, payload, _subsSha);
+      if (res && (res.s === 200 || res.s === 201)) {
+        _subsSha = res.b.content?.sha || _subsSha;
+        console.log(`✅ Push subs persisted to GitHub (${_pushSubs.length})`);
+      } else if (res && (res.s === 409 || res.s === 422)) {
+        _subsSha = null; // conflit → reset, réessaiera au prochain save
+      }
+    } catch(e) { console.warn('GitHub subs persist error:', e.message); }
+  }, 2000);
+}
+
+async function loadSubsFromGitHub() {
+  if (!GH_TOKEN) return;
+  try {
+    const r = await ghGet(GH_SUBS_PATH);
+    if (r && r.s === 200 && r.b.content) {
+      const data = JSON.parse(Buffer.from(r.b.content, 'base64').toString('utf8'));
+      _subsSha = r.b.sha;
+      if (Array.isArray(data.subs)) {
+        _pushSubs = data.subs;
+        console.log(`✅ Loaded ${_pushSubs.length} push sub(s) from GitHub`);
+      }
+      if (Array.isArray(data.sent)) {
+        data.sent.forEach(k => _sentReminders.add(k));
+        console.log(`✅ Loaded ${data.sent.length} sent-reminder marker(s) from GitHub`);
+      }
+    }
+  } catch(e) { console.warn('GitHub subs load error:', e.message); }
 }
 
 app.use(cors({ origin: '*' }));
@@ -800,6 +877,7 @@ function checkEventReminders() {
           const key = `${ev.id}_${remMin}_${dk}`;
           if (_sentReminders.has(key)) continue; // already sent
           _sentReminders.add(key);
+          persistSubsToGitHub(); // sauvegarde le marqueur pour ne pas re-notifier après restart
           const msg = remMin > 0 ? `Dans ${remMin} min` : "C'est l'heure !";
           console.log(`🔔 Firing reminder: ${ev.title} (${msg})`);
           sendPushToAll(
@@ -819,6 +897,15 @@ function checkEventReminders() {
 function scheduleEventReminders(events) {
   console.log('📅 scheduleEventReminders called — using cron-based system instead');
 }
+
+// ═══ ENDPOINT CRON EXTERNE ═══
+// Appelé par un service externe (cron-job.org / UptimeRobot) toutes les minutes.
+// Garde Render éveillé 24/7 ET déclenche le check des rappels même si l'app n'est jamais ouverte.
+app.get('/api/cron', (_, res) => {
+  try { checkEventReminders(); } catch(e) { console.warn('cron check err:', e.message); }
+  res.json({ ok: true, ts: Date.now(), subs: _pushSubs.length });
+});
+app.head('/api/cron', (_, res) => res.status(200).end());
 
 // Test push — send immediate notification to all devices
 app.post('/api/push-test', async (req, res) => {
@@ -864,10 +951,14 @@ const server = app.listen(PORT, async () => {
       }
     } catch(e) { console.warn('GitHub restore failed:', e.message); }
   }
-  loadPushSubs();
+  loadPushSubs(); // fichier local (peut être vide après restart)
+  await loadSubsFromGitHub(); // GitHub = source persistante des souscriptions
+  // Cron rappels toutes les 60s
   setInterval(checkEventReminders, 60 * 1000);
   console.log('⏰ Reminder cron started (every 60s)');
   scheduleDailyJournalReminder();
+  // Re-persister les marqueurs "déjà envoyé" sur GitHub périodiquement (anti-doublon après restart)
+  setInterval(() => { if (_pushSubs.length) persistSubsToGitHub(); }, 10 * 60 * 1000);
 });
 
 // ═══════════════════════════════════════════════

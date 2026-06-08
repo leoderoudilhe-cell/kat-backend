@@ -1781,31 +1781,20 @@ function attachEventHandlers(container) {
     });
   });
 
-  // Event positionné → edit OU drag & drop fluide
+  // ═══ GESTES SUR EVENT : tap / drag (maintien+glisse) / long press 1.2s (supprimer) ═══
   container.querySelectorAll('.ev-positioned').forEach(el => {
-    let pressTimer = null;
-    let dragging = false;
-    let startY = 0;
-    let startTop = 0;
-    let startTimeMin = 0; // ev.time en minutes depuis minuit
+    let startY = 0, startX = 0, startTop = 0, pressStart = 0;
+    let moved = false, dragging = false, deleted = false;
+    let deleteTimer = null, barTimer = null, bar = null;
     let originalTransform = '';
 
-    const gridEl = el.parentElement; // .ev-positioned est dans #hour-grid (parent)
-    // Find the grid container — search up
-    let grid = el;
-    while (grid && grid.id !== 'hour-grid') grid = grid.parentElement;
-
     function getEvent() {
-      const date = el.dataset.evDate;
-      const id = el.dataset.evId;
-      return (S.events[date] || []).find(e => e.id === id);
+      return (S.events[el.dataset.evDate] || []).find(e => e.id === el.dataset.evId);
     }
-
-    function endDrag(commit) {
-      clearLongPressVisual();
-      if (!dragging) return;
-      dragging = false;
-      el.style.transform = originalTransform;
+    function removeBar() {
+      if (bar) { bar.remove(); bar = null; }
+    }
+    function cleanupStyles() {
       el.style.zIndex = '';
       el.style.opacity = '';
       el.style.boxShadow = '';
@@ -1813,167 +1802,141 @@ function attachEventHandlers(container) {
       document.body.style.overscrollBehavior = '';
     }
 
-    let longPressTimer = null;
-    let longPressVisual = null;
-    let longPressTriggered = false;
-
-    function clearLongPressVisual() {
-      if (longPressVisual) {
-        longPressVisual.remove();
-        longPressVisual = null;
-      }
-      el.style.transform = originalTransform || '';
-    }
-
     el.addEventListener('touchstart', e => {
       if (e.target.closest('.ev-map-btn')) return;
-      const touch = e.touches[0];
-      startY = touch.clientY;
+      const t = e.touches[0];
+      startY = t.clientY; startX = t.clientX;
       startTop = parseInt(el.style.top) || 0;
-      longPressTriggered = false;
-      const ev = getEvent();
-      if (!ev) return;
-      const [h, m] = (ev.time || '06:00').split(':').map(Number);
-      startTimeMin = h * 60 + m;
+      pressStart = Date.now();
+      moved = false; dragging = false; deleted = false;
 
-      // ── Timer 1 : 350ms = DRAG ──
-      // ── Visuel : barre de progression de suppression dès le touchstart ──
-      const progressBar = document.createElement('div');
-      progressBar.style.cssText = 'position:absolute;left:0;top:0;height:100%;width:0;background:rgba(255,255,255,0.5);border-radius:10px;pointer-events:none;transition:width 1.2s linear;z-index:1';
-      el.style.position = 'absolute';
-      el.appendChild(progressBar);
-      longPressVisual = progressBar;
-      // Force reflow then set width to 100% over 1.2s
-      requestAnimationFrame(() => {
-        if (longPressVisual === progressBar) progressBar.style.width = '100%';
-      });
+      // Barre de progression de suppression (apparaît après 250ms pour ne pas flasher sur un tap)
+      barTimer = setTimeout(() => {
+        bar = document.createElement('div');
+        bar.style.cssText = 'position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,0.55);border-radius:10px;pointer-events:none;z-index:5;transition:width 0.95s linear';
+        el.appendChild(bar);
+        requestAnimationFrame(() => { if (bar) bar.style.width = '100%'; });
+        haptic(15); // léger feedback : la barre démarre
+      }, 250);
 
-      pressTimer = setTimeout(() => {
-        if (longPressTriggered) return;
-        // Si elle bouge dans cette fenêtre → mode drag
-        // (on garde la barre visible pour qu'elle voie qu'elle peut encore appuyer)
-        dragging = true;
-        haptic([50, 30, 50]);
-        originalTransform = el.style.transform || '';
-        el.style.zIndex = '999';
-        el.style.opacity = '0.9';
-        el.style.boxShadow = '0 8px 24px rgba(0,0,0,0.3)';
-        el.style.transition = 'box-shadow .15s, opacity .15s';
-        document.body.style.overscrollBehavior = 'contain';
-        clearLongPressVisual(); // si elle bouge, on retire la barre
-      }, 350);
-
-      // ── Timer 2 : 1200ms = SUPPRESSION (si elle reste appuyée sans bouger) ──
-      longPressTimer = setTimeout(() => {
-        if (dragging) return; // déjà en drag → annule la suppression
-        longPressTriggered = true;
-        // Stop drag mode si activé
-        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-        dragging = false;
-        el.style.zIndex = '';
-        el.style.opacity = '';
-        el.style.boxShadow = '';
-        el.style.transition = '';
-        document.body.style.overscrollBehavior = '';
-
+      // Suppression après 1200ms si elle reste immobile
+      deleteTimer = setTimeout(() => {
+        if (moved || dragging) return;
+        deleted = true;
+        removeBar();
+        cleanupStyles();
         // ANIMATION SUPPRESSION
         haptic([100, 50, 100, 50, 200]);
-        el.style.transition = 'all .4s cubic-bezier(.5,-.5,.5,1.5)';
-        el.style.transform = 'scale(0.85) rotate(-3deg)';
+        el.style.transition = 'all .45s cubic-bezier(.5,-.4,.5,1.5)';
+        el.style.transformOrigin = 'center';
+        el.style.transform = 'scale(0.8) rotate(-4deg)';
         el.style.opacity = '0';
-        el.style.boxShadow = '0 0 40px rgba(255,255,255,0.6)';
-
-        // SUPPRESSION RÉELLE après l'animation
+        el.style.boxShadow = '0 0 50px rgba(255,255,255,0.7)';
         setTimeout(async () => {
           const ev = getEvent();
           if (!ev) return;
           const evId = el.dataset.evId;
           const date = el.dataset.evDate;
-          // Confetti
-          if (typeof launchConfetti === 'function') launchConfetti();
-          // Supprimer de KAT
+          if (typeof launchConfetti === 'function') {
+            const r = el.getBoundingClientRect();
+            launchConfetti(r.left + r.width/2, r.top + r.height/2);
+          }
           const idx = (S.events[date] || []).findIndex(e => e.id === evId);
           if (idx !== -1) S.events[date].splice(idx, 1);
-          // Supprimer d'iCloud Apple Calendar
+          // Supprimer aussi dans Apple Calendar
           fetch('/api/delete-event', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ evId })
           }).catch(() => {});
           await saveData();
           render();
           toast('🎉 Événement terminé et supprimé !');
-        }, 400);
+        }, 450);
       }, 1200);
     }, { passive: true });
 
     el.addEventListener('touchmove', e => {
-      // Annule la suppression dès qu'elle bouge un peu
-      if (Math.abs(e.touches[0].clientY - startY) > 5) {
-        clearTimeout(longPressTimer);
-        longPressTimer = null;
-      }
-      if (!dragging) {
-        if (Math.abs(e.touches[0].clientY - startY) > 8) {
-          clearTimeout(pressTimer);
-          pressTimer = null;
+      if (deleted) return;
+      const t = e.touches[0];
+      const dy = t.clientY - startY;
+      const dx = t.clientX - startX;
+      const dist = Math.max(Math.abs(dy), Math.abs(dx));
+
+      if (dist > 8 && !moved) {
+        moved = true;
+        // Dès qu'elle bouge → plus de suppression
+        clearTimeout(deleteTimer); deleteTimer = null;
+        clearTimeout(barTimer); barTimer = null;
+        removeBar();
+        // Activer le drag SEULEMENT si elle a maintenu > 180ms avant de bouger
+        // (sinon = scroll naturel de la grille)
+        const held = Date.now() - pressStart;
+        if (held > 180 && Math.abs(dy) > Math.abs(dx)) {
+          dragging = true;
+          haptic([40, 20, 40]);
+          originalTransform = el.style.transform || '';
+          el.style.zIndex = '999';
+          el.style.opacity = '0.92';
+          el.style.boxShadow = '0 8px 24px rgba(0,0,0,0.3)';
+          el.style.transition = 'box-shadow .15s';
+          document.body.style.overscrollBehavior = 'contain';
         }
-        return;
       }
-      e.preventDefault();
-      const touch = e.touches[0];
-      const dy = touch.clientY - startY;
-      const newTop = Math.max(0, startTop + dy);
-      // Snap visuel toutes les 15min (16px)
-      const snappedTop = Math.round(newTop / 20) * 20;
-      el.style.top = snappedTop + 'px';
+
+      if (dragging) {
+        e.preventDefault();
+        const newTop = Math.max(0, startTop + dy);
+        const snappedTop = Math.round(newTop / 20) * 20; // snap 15min (20px à 80px/h)
+        el.style.top = snappedTop + 'px';
+      }
     }, { passive: false });
 
     el.addEventListener('touchend', async e => {
-      clearTimeout(pressTimer);
-      clearTimeout(longPressTimer);
-      longPressTimer = null;
-      if (longPressTriggered) return; // suppression déjà en cours
-      if (!dragging) { clearLongPressVisual(); return; }
-      const wasD = dragging;
-      const finalTop = parseInt(el.style.top) || 0;
-      endDrag(true);
+      clearTimeout(deleteTimer); deleteTimer = null;
+      clearTimeout(barTimer); barTimer = null;
+      removeBar();
 
-      // Calcul nouvelle heure (top relatif au 06h = 0px)
-      const totalMin = Math.round(finalTop / 80 * 60 / 15) * 15;
-      const newH = 6 + Math.floor(totalMin / 60);
-      const newM = totalMin % 60;
-      if (newH < 6 || newH > 22) return; // hors plage
+      if (deleted) return; // suppression en cours
 
-      const newTime = `${String(newH).padStart(2,'0')}:${String(newM).padStart(2,'0')}`;
+      if (dragging) {
+        // Commit le déplacement
+        const finalTop = parseInt(el.style.top) || 0;
+        cleanupStyles();
+        el.style.transform = originalTransform;
+        const totalMin = Math.round(finalTop / 80 * 60 / 15) * 15;
+        const newH = 6 + Math.floor(totalMin / 60);
+        const newM = totalMin % 60;
+        if (newH >= 6 && newH <= 22) {
+          const newTime = `${String(newH).padStart(2,'0')}:${String(newM).padStart(2,'0')}`;
+          const ev = getEvent();
+          if (ev && ev.time !== newTime) {
+            ev.time = newTime;
+            haptic(30);
+            toast(`📅 Déplacé à ${newTime}`);
+            await saveData();
+            render();
+            return;
+          }
+        }
+        render(); // re-render pour repositionner proprement
+        return;
+      }
 
-      // Update event
-      const date = el.dataset.evDate;
-      const id = el.dataset.evId;
-      const ev = (S.events[date] || []).find(e => e.id === id);
-      if (ev && ev.time !== newTime) {
-        ev.time = newTime;
-        haptic(30);
-        toast(`📅 Déplacé à ${newTime}`);
-        await saveData();
-        render();
+      // Ni drag ni delete ni move → c'est un TAP → ouvre le modal
+      if (!moved) {
+        if (e.target.closest('.ev-map-btn')) return;
+        openEventModal(el.dataset.evDate, el.dataset.evId);
       }
     }, { passive: false });
 
     el.addEventListener('touchcancel', () => {
-      clearTimeout(pressTimer);
-      clearTimeout(longPressTimer);
-      longPressTimer = null;
-      endDrag(false);
+      clearTimeout(deleteTimer); deleteTimer = null;
+      clearTimeout(barTimer); barTimer = null;
+      removeBar();
+      if (dragging) { cleanupStyles(); el.style.transform = originalTransform; render(); }
     }, { passive: true });
-
-    el.addEventListener('click', e => {
-      if (dragging || longPressTriggered) { e.preventDefault(); e.stopPropagation(); return; }
-      if (e.target.closest('.ev-map-btn')) return;
-      e.stopPropagation();
-      openEventModal(el.dataset.evDate, el.dataset.evId);
-    });
   });
+
   // Done button inside time-grid events
   container.querySelectorAll('.ev-positioned .ev-done-btn').forEach(btn => {
     btn.addEventListener('click', async e => {
