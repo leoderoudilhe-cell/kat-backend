@@ -25,20 +25,27 @@ self.addEventListener('push', e => {
     tag: payload.tag || 'kat-notif',
     vibrate: [200, 100, 200, 100, 200],
     requireInteraction: payload.persist || false,
-    data: { url: payload.url || '/' }
+    // Stocke le message complet pour l'afficher dans l'app au clic
+    data: { url: payload.url || '/', fullTitle: payload.title, fullBody: payload.body }
   };
 
   e.waitUntil(self.registration.showNotification(payload.title || 'KAT 🐱', opts));
 });
 
-// Handle notification click — open app
+// Handle notification click — open app + affiche le message complet
 self.addEventListener('notificationclick', e => {
   e.notification.close();
+  const { fullTitle, fullBody, url } = e.notification.data || {};
+  const targetUrl = (fullBody ? `/?kat_msg=${encodeURIComponent(fullTitle||'')}__SEP__${encodeURIComponent(fullBody)}` : url) || '/';
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
       const existing = list.find(c => c.url.includes(self.location.origin));
-      if (existing) return existing.focus();
-      return clients.openWindow(e.notification.data?.url || '/');
+      if (existing) {
+        // Envoie le message à l'app ouverte via postMessage
+        existing.postMessage({ type: 'SHOW_MSG', title: fullTitle, body: fullBody });
+        return existing.focus();
+      }
+      return clients.openWindow(targetUrl);
     })
   );
 });

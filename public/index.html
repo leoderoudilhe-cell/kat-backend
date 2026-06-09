@@ -549,6 +549,19 @@ input, textarea { font-family: inherit; }
 <!-- Toast -->
 <div id="toast"></div>
 
+<!-- Modale message push complet -->
+<div class="modal-overlay" id="msg-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal-sheet" style="text-align:center;padding:28px 24px 32px">
+    <div style="font-size:36px;margin-bottom:12px">🐱</div>
+    <div class="modal-title" id="msg-modal-title" style="font-size:20px;margin-bottom:14px"></div>
+    <p id="msg-modal-body" style="font-size:16px;line-height:1.6;color:var(--text-secondary);white-space:pre-wrap;margin-bottom:24px"></p>
+    <button onclick="document.getElementById('msg-modal').classList.remove('open')"
+      style="background:var(--accent);color:white;border:none;border-radius:12px;padding:12px 32px;font-size:16px;font-weight:600;cursor:pointer">
+      ❤️ Merci !
+    </button>
+  </div>
+</div>
+
 <!-- Undo Bar -->
 <div id="undo-bar">
   <span id="undo-msg">Supprimé</span>
@@ -888,6 +901,16 @@ function parseDate(k) {
 }
 function isToday(k) { return k === dateKey(new Date()); }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+
+// Affiche un message complet reçu via notification push
+function showMsgModal(title, body) {
+  const el = document.getElementById('msg-modal');
+  if (!el) return;
+  document.getElementById('msg-modal-title').textContent = title || 'KAT 🐱';
+  document.getElementById('msg-modal-body').textContent = body || '';
+  el.classList.add('open');
+}
+
 function toast(msg, dur=2500) {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -4769,7 +4792,19 @@ async function boot() {
             const changed = await smartSyncFromServer();
             if (changed) render();
           }
+          // Message personnalisé envoyé via notif click
+          if (e.data?.type === 'SHOW_MSG' && e.data.body) {
+            showMsgModal(e.data.title, e.data.body);
+          }
         });
+
+        // Vérifier si l'app a été ouverte depuis une notif avec un message complet
+        const _kat_msg_param = new URLSearchParams(location.search).get('kat_msg');
+        if (_kat_msg_param) {
+          const [_mt, _mb] = _kat_msg_param.split('__SEP__').map(decodeURIComponent);
+          setTimeout(() => showMsgModal(_mt, _mb), 600);
+          history.replaceState({}, '', '/'); // nettoie l'URL
+        }
         if (Notification.permission === 'granted' && S.settings.notifEnabled !== false) {
           // Check if browser already has a subscription
           const existing = await reg.pushManager.getSubscription().catch(()=>null);
