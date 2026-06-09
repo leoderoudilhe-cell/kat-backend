@@ -940,6 +940,16 @@ app.post('/api/push-test', async (req, res) => {
   res.json({ ok: true, sent_to: _pushSubs.length });
 });
 
+// Message personnalisé — GET /api/push-custom?title=...&body=...&secret=kat2024
+app.get('/api/push-custom', async (req, res) => {
+  const { title = 'KAT 🐱', body = '', secret } = req.query;
+  if (secret !== 'kat2024') return res.status(403).json({ error: 'Forbidden' });
+  if (!_pushSubs.length) return res.status(404).json({ error: 'No subscriptions', count: 0 });
+  if (!body) return res.status(400).json({ error: 'body param required' });
+  await sendPushToAll(title, body, { tag: 'custom-' + Date.now() });
+  res.json({ ok: true, sent_to: _pushSubs.length });
+});
+
 // Debug: how many subscriptions
 app.get('/api/push-count', (_, res) => {
   res.json({ count: _pushSubs.length, subs: _pushSubs.map(s => ({ endpoint: s.endpoint.slice(0,60), ts: s.ts })) });
