@@ -869,11 +869,16 @@ const _sentReminders = new Set();
 
 // Cron-based reminder check — runs every minute
 // Much more reliable than setTimeout (survives restarts since it re-checks each minute)
+let _lastReminderCheck = 0;
 function checkEventReminders() {
   if (!_pushSubs.length) return;
   const events = loadData().events || {};
   const now = Date.now();
-  const windowMs = 90 * 1000; // fire within 90s window to handle timing drift
+  // Si le serveur a dormi (gap > 5min depuis le dernier check), on élargit la fenêtre
+  // à 30min pour rattraper les rappels manqués pendant le sommeil (ex: elle ouvre l'app le matin).
+  const gap = now - _lastReminderCheck;
+  const windowMs = (_lastReminderCheck > 0 && gap > 5 * 60 * 1000) ? 30 * 60 * 1000 : 90 * 1000;
+  _lastReminderCheck = now;
 
   for (const [dk, evs] of Object.entries(events)) {
     if (!Array.isArray(evs)) continue;
