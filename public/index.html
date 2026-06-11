@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="KAT">
 <meta name="theme-color" content="#F472B6">
 <title>KAT 🐱</title>
-<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="manifest" href="/manifest.json">
 <style>
@@ -549,19 +549,6 @@ input, textarea { font-family: inherit; }
 <!-- Toast -->
 <div id="toast"></div>
 
-<!-- Modale message push complet -->
-<div class="modal-overlay" id="msg-modal" onclick="if(event.target===this)this.classList.remove('open')">
-  <div class="modal-sheet" style="text-align:center;padding:28px 24px 32px">
-    <div style="font-size:36px;margin-bottom:12px">🐱</div>
-    <div class="modal-title" id="msg-modal-title" style="font-size:20px;margin-bottom:14px"></div>
-    <p id="msg-modal-body" style="font-size:16px;line-height:1.6;color:var(--text-secondary);white-space:pre-wrap;margin-bottom:24px"></p>
-    <button onclick="document.getElementById('msg-modal').classList.remove('open')"
-      style="background:var(--accent);color:white;border:none;border-radius:12px;padding:12px 32px;font-size:16px;font-weight:600;cursor:pointer">
-      ❤️ Merci !
-    </button>
-  </div>
-</div>
-
 <!-- Undo Bar -->
 <div id="undo-bar">
   <span id="undo-msg">Supprimé</span>
@@ -901,16 +888,6 @@ function parseDate(k) {
 }
 function isToday(k) { return k === dateKey(new Date()); }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
-
-// Affiche un message complet reçu via notification push
-function showMsgModal(title, body) {
-  const el = document.getElementById('msg-modal');
-  if (!el) return;
-  document.getElementById('msg-modal-title').textContent = title || 'KAT 🐱';
-  document.getElementById('msg-modal-body').textContent = body || '';
-  el.classList.add('open');
-}
-
 function toast(msg, dur=2500) {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -1207,7 +1184,7 @@ async function pushToServer() {
     // Journal: text + mood seulement (photos stockées localement + compressées séparément si nouvelles)
     const journalClean = {};
     for (const [k, entry] of Object.entries(S.journal)) {
-      journalClean[k] = { mood: entry.mood, text: entry.text, date: entry.date };
+      journalClean[k] = { mood: entry.mood, text: entry.text, date: entry.date, _ts: entry._ts };
       // Photos uniquement si présentes ET nouvelles (compressées agressivement)
       if (entry.photos && entry.photos.length) {
         try {
@@ -1436,6 +1413,9 @@ document.getElementById('undo-btn').onclick = async () => {
     const { item: courseItem, idx } = item.data;
     if (!S.courses.items) S.courses.items = [];
     S.courses.items.splice(idx, 0, courseItem);
+    await saveData();
+  } else if (item.type === 'ptodo') {
+    S.ptodos.push(item.data.item);
     await saveData();
   }
   render();
@@ -2138,11 +2118,11 @@ function renderWeek(container) {
         <div class="week-day-name">${days[i]}</div>
         <div class="week-day-num${todayClass}" data-goto="${escHtml(dk)}">${day.getDate()}</div>
       </div>`;
-    for (const {ev, dateKey: evDk} of evs.slice(0,4)) {
+    for (const {ev, dateKey: evDk, originalKey} of evs.slice(0,4)) {
       const cat = getCat(ev.catId);
       const done = isEventDone(ev, evDk);
       html += `<div class="week-event-pill${done?' done':''}" style="background:${escHtml(cat.color)};opacity:${done?0.5:1}"
-        data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(dk)}" data-goto="${escHtml(dk)}">${escHtml(ev.title)}</div>`;
+        data-ev-id="${escHtml(ev.id)}" data-ev-date="${escHtml(originalKey)}" data-goto="${escHtml(dk)}">${escHtml(ev.title)}</div>`;
     }
     if (evs.length > 4) html += `<div style="font-size:10px;color:var(--text2)">+${evs.length-4}</div>`;
     html += '</div>';
@@ -2438,31 +2418,28 @@ function renderJournal(container) {
   // Auto-save TEXTE après 1.5s d'inactivité (sécurité si elle ne tap pas "Enregistrer")
   const journalTextarea = document.getElementById('journal-text');
   if (journalTextarea) {
+    const entryDate = S.date; // figé : sinon le debounce écrit dans le jour affiché au moment du tir
     let _journalAutoSaveTimer = null;
+    const saveText = async () => {
+      const text = journalTextarea.value;
+      if (!S.journal[entryDate]) S.journal[entryDate] = {};
+      S.journal[entryDate].text = text;
+      S.journal[entryDate].date = entryDate; S.journal[entryDate]._ts = Date.now();
+      if (_selectedMood) S.journal[entryDate].mood = _selectedMood;
+      await saveData();
+      if (isToday(entryDate) && (text.length > 0 || _selectedMood)) {
+        localStorage.setItem('kat_journal_filled_' + entryDate, '1');
+        cancelDailyReminder();
+      }
+    };
     journalTextarea.addEventListener('input', () => {
       clearTimeout(_journalAutoSaveTimer);
-      _journalAutoSaveTimer = setTimeout(async () => {
-        const text = journalTextarea.value;
-        if (!S.journal[S.date]) S.journal[S.date] = {};
-        S.journal[S.date].text = text;
-        S.journal[S.date].date = S.date; S.journal[S.date]._ts = Date.now();
-        if (_selectedMood) S.journal[S.date].mood = _selectedMood;
-        await saveData();
-        if (isToday(S.date) && (text.length > 0 || _selectedMood)) {
-          localStorage.setItem('kat_journal_filled_' + S.date, '1');
-          cancelDailyReminder();
-        }
-      }, 1500);
+      _journalAutoSaveTimer = setTimeout(saveText, 1500);
     });
     // Save aussi quand elle perd le focus (blur)
-    journalTextarea.addEventListener('blur', async () => {
+    journalTextarea.addEventListener('blur', () => {
       clearTimeout(_journalAutoSaveTimer);
-      const text = journalTextarea.value;
-      if (!S.journal[S.date]) S.journal[S.date] = {};
-      S.journal[S.date].text = text;
-      S.journal[S.date].date = S.date; S.journal[S.date]._ts = Date.now();
-      if (_selectedMood) S.journal[S.date].mood = _selectedMood;
-      await saveData();
+      saveText();
     });
   }
 
@@ -4792,19 +4769,7 @@ async function boot() {
             const changed = await smartSyncFromServer();
             if (changed) render();
           }
-          // Message personnalisé envoyé via notif click
-          if (e.data?.type === 'SHOW_MSG' && e.data.body) {
-            showMsgModal(e.data.title, e.data.body);
-          }
         });
-
-        // Vérifier si l'app a été ouverte depuis une notif avec un message complet
-        const _kat_msg_param = new URLSearchParams(location.search).get('kat_msg');
-        if (_kat_msg_param) {
-          const [_mt, _mb] = _kat_msg_param.split('__SEP__').map(decodeURIComponent);
-          setTimeout(() => showMsgModal(_mt, _mb), 600);
-          history.replaceState({}, '', '/'); // nettoie l'URL
-        }
         if (Notification.permission === 'granted' && S.settings.notifEnabled !== false) {
           // Check if browser already has a subscription
           const existing = await reg.pushManager.getSubscription().catch(()=>null);
@@ -4833,12 +4798,14 @@ async function boot() {
       await fetch('/api/ping', { signal: AbortSignal.timeout(35000) });
     } catch(e) { /* offline */ }
     try {
-      await syncFromServer();
+      // smartSync = merge protégé par timestamps (syncFromServer écrasait
+      // les modifs locales faites hors-ligne avant qu'elles soient poussées)
+      await smartSyncFromServer();
       render();
       await pushToServer();
     } catch(e) {
       // Retry after 10s if initial sync fails
-      setTimeout(() => syncFromServer().then(() => render()).catch(()=>{}), 10000);
+      setTimeout(() => smartSyncFromServer().then(() => render()).catch(()=>{}), 10000);
     }
   };
   wakeAndSync();
@@ -4859,17 +4826,16 @@ async function boot() {
   }
   setInterval(pollServer, 10000);
   // Sync immédiat au retour sur l'app (changement de tab, déverrouillage)
+  // Push APRÈS la fin du pull — sinon on pousse des données périmées qui
+  // écrasent ce qu'un autre appareil vient d'envoyer (race condition)
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
-      pollServer();
-      // Push aussi nos données au cas où on a modifié hors-ligne
-      setTimeout(() => pushToServer().catch(()=>{}), 500);
+      pollServer().finally(() => pushToServer().catch(()=>{}));
     }
   });
   // Sync au focus (changement de fenêtre Mac/iPad)
   window.addEventListener('focus', () => {
-    pollServer();
-    setTimeout(() => pushToServer().catch(()=>{}), 500);
+    pollServer().finally(() => pushToServer().catch(()=>{}));
   });
 
   // Auto-sync Apple Calendar -> KAT toutes les 5 min
@@ -4907,7 +4873,6 @@ async function autoSyncFromApple() {
       await saveData();
       render();
       if (localEmpty) toast('🔄 ' + added + ' event(s) restauré(s) depuis iCloud');
-      toast();
     }
   } catch(e) { /* silencieux si hors-ligne */ }
 }
@@ -5003,7 +4968,7 @@ function renderCourses(container) {
     const suggs = (S.courses.suggestions && S.courses.suggestions.length > 0)
       ? S.courses.suggestions.slice(0,12)
       : DEFAULT_SUGGESTIONS;
-    const chipHtml = suggs.map(s => `<button class="suggestion-chip" onclick="quickAddCourse(${JSON.stringify(escHtml(s))})">${escHtml(s)}</button>`).join('');
+    const chipHtml = suggs.map(s => `<button class="suggestion-chip" data-name="${escHtml(s)}">${escHtml(s)}</button>`).join('');
     bodyHtml = `<div class="courses-empty">
       <div class="courses-empty-icon">🛒</div>
       <div class="courses-empty-title">Ta liste est vide</div>
@@ -5029,10 +4994,11 @@ function renderCourses(container) {
         const checkedClass = item.checked ? ' checked' : '';
         const checkIcon = item.checked ? '✅' : '⭕';
         return `<div class="course-item${checkedClass}" data-id="${escHtml(item.id)}"
-          ontouchstart="startCoursePress('${escHtml(item.id)}')"
+          ontouchstart="startCoursePress('${escHtml(item.id)}', event)"
+          ontouchmove="endCoursePress()"
           ontouchend="endCoursePress()"
           ontouchcancel="endCoursePress()"
-          onmousedown="startCoursePress('${escHtml(item.id)}')"
+          onmousedown="startCoursePress('${escHtml(item.id)}', event)"
           onmouseup="endCoursePress()"
           onmouseleave="endCoursePress()">
           <span class="course-check" onclick="toggleCourseItem('${escHtml(item.id)}')">${checkIcon}</span>
@@ -5053,6 +5019,7 @@ function renderCourses(container) {
     }
   }
 
+  const prevScroll = container.scrollTop; // garder la position (sinon la liste saute à chaque coche)
   container.innerHTML = `
     <div style="padding:16px">
       <div class="courses-header">
@@ -5067,14 +5034,21 @@ function renderCourses(container) {
       </div>
       ${bodyHtml}
     </div>`;
+  container.scrollTop = prevScroll;
+  container.querySelectorAll('.suggestion-chip').forEach(b =>
+    b.addEventListener('click', () => quickAddCourse(b.dataset.name)));
 }
 
 let _coursePressTimer = null;
 let _coursePressId = null;
-function startCoursePress(id) {
+function startCoursePress(id, e) {
+  // Ne pas armer la suppression quand elle tape la coche
+  if (e && e.target && e.target.closest('.course-check')) return;
   _coursePressId = id;
+  clearTimeout(_coursePressTimer);
   _coursePressTimer = setTimeout(async () => {
     _coursePressTimer = null;
+    haptic([60, 30, 60]);
     await deleteCourseItem(id);
   }, 600);
 }
@@ -5179,8 +5153,14 @@ document.getElementById('course-name-input').addEventListener('input', function(
   const matches = (S.courses.suggestions||[]).filter(s => s.toLowerCase().includes(val)).slice(0,4);
   if (matches.length === 0) { list.innerHTML = ''; return; }
   list.innerHTML = `<div class="course-autocomplete">${matches.map(m =>
-    `<div class="course-autocomplete-item" onclick="document.getElementById('course-name-input').value='${escHtml(m)}';document.getElementById('course-autocomplete-list').innerHTML='';selectCourseCat(detectCourseCategory('${escHtml(m)}'))">${escHtml(m)}</div>`
+    `<div class="course-autocomplete-item" data-name="${escHtml(m)}">${escHtml(m)}</div>`
   ).join('')}</div>`;
+  list.querySelectorAll('.course-autocomplete-item').forEach(el =>
+    el.addEventListener('click', () => {
+      document.getElementById('course-name-input').value = el.dataset.name;
+      list.innerHTML = '';
+      selectCourseCat(detectCourseCategory(el.dataset.name));
+    }));
 });
 document.getElementById('course-name-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('course-save-btn').click();
@@ -5195,8 +5175,10 @@ document.getElementById('course-save-btn').addEventListener('click', async () =>
   toast(`✅ ${name} ajouté`);
 });
 
-// ═══ ICONE IOS PNG 180x180 ═══
-(function generateCatIcon() {
+// ═══ ICONE IOS ═══
+// iOS ne supporte ni SVG ni data-URI pour apple-touch-icon → vrai fichier /icon-180.png.
+// L'ancien générateur canvas remplaçait le lien par un data-URI (ignoré par iOS) : désactivé.
+(function generateCatIcon_DISABLED() { return;
   try {
     const canvas = document.createElement('canvas');
     canvas.width = 180; canvas.height = 180;

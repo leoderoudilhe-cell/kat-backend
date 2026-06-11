@@ -83,7 +83,7 @@ function loadData() {
 let _ghPersistTimer = null;
 function saveData(d) {
   try {
-    d._pushSubs = _pushSubs;
+    delete d._pushSubs; // jamais dans le fichier de données (exposé via /api/data sinon)
     d._updatedAt = Date.now();
     _dataModifiedTs = d._updatedAt; // FIX B1: signale aux autres appareils qu'il y a du nouveau
     // Write atomically: tmp file puis rename (évite corruption en cas de crash)
@@ -383,6 +383,13 @@ const CAT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <line x1="64" y1="66" x2="86" y2="67" stroke="#FECDD3" stroke-width="1.2" opacity="0.8"/>
 </svg>`;
 
+const ICON_PNG = Buffer.from('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', 'base64');
+app.get('/icon-180.png', (_, res) => {
+  res.set('Content-Type', 'image/png');
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.send(ICON_PNG);
+});
+
 app.get('/icon.svg', (_, res) => {
   res.set('Content-Type', 'image/svg+xml');
   res.set('Cache-Control', 'public, max-age=86400');
@@ -401,6 +408,7 @@ app.get('/manifest.json', (_, res) => {
     theme_color: '#F472B6',
     orientation: 'portrait',
     icons: [
+      { src: '/icon-180.png', sizes: '180x180', type: 'image/png', purpose: 'any maskable' },
       { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
       { src: iconDataUri, sizes: '192x192', type: 'image/svg+xml' },
       { src: iconDataUri, sizes: '512x512', type: 'image/svg+xml' }
@@ -414,6 +422,7 @@ app.get('/api/ping', (_, res) => res.json({ ok: true, ts: _dataModifiedTs }));
 
 app.get('/api/data', (_, res) => {
   const d = loadData();
+  delete d._pushSubs; // anciens fichiers pouvaient en contenir
   if (!d._updatedAt) d._updatedAt = _dataModifiedTs;
   res.json(d);
 });
@@ -447,6 +456,7 @@ app.get('/api/customize', (_, res) => {
 // Manual full backup download — pour téléchargement assurance
 app.get('/api/backup', (_, res) => {
   const d = loadData();
+  delete d._pushSubs;
   res.set('Content-Type', 'application/json');
   res.set('Content-Disposition', `attachment; filename="kat-backup-${Date.now()}.json"`);
   res.send(JSON.stringify(d, null, 2));
@@ -531,11 +541,15 @@ app.post('/api/data', (req, res) => {
       if (!d.journal) d.journal = {};
       for (const [k, v] of Object.entries(b.journal)) {
         const existing = d.journal[k] || {};
-        // Merge: garder valeur non-vide entre serveur/client
+        // Merge par timestamp (cohérent avec le client): le plus récent gagne.
+        // Permet de corriger/effacer du texte (l'ancien merge "par longueur" l'empêchait).
+        const lts = existing._ts || 0, rts = v._ts || 0;
+        const winner = rts >= lts ? v : existing;
         const merged = {
-          mood: (v.mood && v.mood.length) ? v.mood : (existing.mood || ''),
-          text: (v.text && v.text.length >= (existing.text?.length || 0)) ? v.text : (existing.text || ''),
-          date: v.date || existing.date,
+          mood: winner.mood || existing.mood || '',
+          text: (winner.text !== undefined && winner.text !== null) ? winner.text : (existing.text || ''),
+          date: winner.date || existing.date || v.date,
+          _ts: Math.max(lts, rts),
         };
         // Photos: prend le plus grand des deux (client OU serveur)
         const clientPhotos = Array.isArray(v.photos) ? v.photos : [];
@@ -561,12 +575,9 @@ app.post('/api/data', (req, res) => {
         if (deletedSnapshot.length) console.log(`🗑️ iCloud delete: ${deletedSnapshot.join(', ')}`);
       }, 3000);
       setTimeout(() => scheduleEventReminders(d.events), 500);
-
-      // Notification silencieuse aux autres appareils pour qu'ils synchent
-      // (le SW va faire un fetch /api/data au reçu)
-      if (_pushSubs.length > 0) {
-        sendPushToAll('__sync__', 'sync', { tag: 'sync-' + Date.now(), silent: true }).catch(()=>{});
-      }
+      // NOTE: plus de push silencieux '__sync__' — iOS révoque la souscription
+      // quand un push n'affiche pas de notification. Le polling 10s + sync au
+      // focus assurent déjà la propagation entre appareils.
     }
     res.json({ ok: true });
   } catch(e) {
@@ -649,8 +660,7 @@ function buildICS(events) {
     const [y,m,d] = dk.split('-').map(Number);
     const [h,mi] = (ev.time||'09:00').split(':').map(Number);
     const dur = parseInt(ev.duration) || 60;
-    // Determine UTC offset for Paris (simple: +1 Oct-Mar, +2 Apr-Sep)
-    const utcOffset = (m >= 4 && m <= 9) ? 2 : 1;
+    const utcOffset = parisIsDST(y, m, d) ? 2 : 1;
     const utcH = h - utcOffset;
     const startDate = new Date(Date.UTC(y, m-1, d, utcH, mi, 0));
     const endDate   = new Date(startDate.getTime() + dur * 60000);
@@ -803,36 +813,48 @@ async function sendPushToAll(title, body, opts = {}) {
 }
 
 // ═══ SCHEDULED PUSH REMINDERS ═══
+// Date du jour en heure de Paris (pas UTC — sinon mauvaise clé journal après minuit/18h)
+function parisDateKey() {
+  const now = new Date();
+  const offset = parisIsDST(now.getUTCFullYear(), now.getUTCMonth()+1, now.getUTCDate()) ? 2 : 1;
+  return new Date(now.getTime() + offset * 3600 * 1000).toISOString().slice(0, 10);
+}
+function parisHour() {
+  const now = new Date();
+  const offset = parisIsDST(now.getUTCFullYear(), now.getUTCMonth()+1, now.getUTCDate()) ? 2 : 1;
+  return (now.getUTCHours() + offset) % 24;
+}
+function journalFilled(dk) {
+  const d = loadData();
+  const e = d.journal && d.journal[dk];
+  return !!(e && (e.text || e.mood || (e.photos && e.photos.length)));
+}
+let _journalRepeatTimer = null;
 function scheduleDailyJournalReminder() {
   const now = new Date();
-  // 18h Paris time = 16h UTC (summer) or 17h UTC (winter)
-  const nowDate = new Date();
-  const parisOffset = parisIsDST(nowDate.getUTCFullYear(), nowDate.getUTCMonth()+1, nowDate.getUTCDate()) ? 2 : 1;
-  const target18hUTC = new Date();
-  target18hUTC.setUTCHours(18 - parisOffset, 0, 0, 0);
-  const target = target18hUTC;
+  const parisOffset = parisIsDST(now.getUTCFullYear(), now.getUTCMonth()+1, now.getUTCDate()) ? 2 : 1;
+  const target = new Date();
+  target.setUTCHours(18 - parisOffset, 0, 0, 0);
   if (target <= now) target.setDate(target.getDate() + 1);
   const delay = target.getTime() - now.getTime();
 
   setTimeout(async () => {
-    // Check if any device already filled journal today
-    const d = loadData();
-    const today = target.toISOString().slice(0, 10);
-    const filled = d.journal && d.journal[today] && (d.journal[today].text || (d.journal[today].photos && d.journal[today].photos.length));
-    if (!filled) {
+    const today = parisDateKey(); // date réelle au moment du tir, en heure de Paris
+    if (!journalFilled(today)) {
       console.log('📢 Sending 18h journal reminder push...');
       await sendPushToAll(
         'KAT 🐱 — Ta note du jour !',
-        "Tu n\'as pas encore rempli ton journal ni posté ta photo du jour 📸",
+        "Tu n'as pas encore rempli ton journal ni posté ta photo du jour 📸",
         { tag: 'journal-reminder', persist: true }
-      );
-      // Repeat every 30 min if still not filled
-      let repeat = setInterval(async () => {
-        const d2 = loadData();
-        const todayNow = new Date().toISOString().slice(0, 10);
-        const filledNow = d2.journal && d2.journal[todayNow] && (d2.journal[todayNow].text || (d2.journal[todayNow].photos && d2.journal[todayNow].photos.length));
-        if (filledNow) { clearInterval(repeat); return; }
-        await sendPushToAll('KAT 🐱', "N\'oublie pas ton journal ! 📔", { tag: 'journal-reminder' });
+      ).catch(()=>{});
+      // Relance toutes les 30 min, mais jamais après 22h, et un seul timer actif
+      clearInterval(_journalRepeatTimer);
+      _journalRepeatTimer = setInterval(async () => {
+        const dk = parisDateKey();
+        if (journalFilled(dk) || parisHour() >= 22 || parisHour() < 18) {
+          clearInterval(_journalRepeatTimer); _journalRepeatTimer = null; return;
+        }
+        await sendPushToAll('KAT 🐱', "N'oublie pas ton journal ! 📔", { tag: 'journal-reminder' }).catch(()=>{});
       }, 30 * 60 * 1000);
     }
     // Schedule next day
@@ -880,10 +902,30 @@ function checkEventReminders() {
   const windowMs = (_lastReminderCheck > 0 && gap > 5 * 60 * 1000) ? 30 * 60 * 1000 : 90 * 1000;
   _lastReminderCheck = now;
 
+  // Occurrences à vérifier: la date d'origine + l'occurrence du jour pour les récurrents
+  const todayDk = parisDateKey();
+  const occurrences = [];
   for (const [dk, evs] of Object.entries(events)) {
     if (!Array.isArray(evs)) continue;
     for (const ev of evs) {
       if (!ev.title || !ev.time) continue;
+      occurrences.push({ dk, ev });
+      if (ev.recurrence && ev.recurrence !== 'none' && dk !== todayDk && dk < todayDk) {
+        const [oy, om, od] = dk.split('-').map(Number);
+        const [ty, tm, td] = todayDk.split('-').map(Number);
+        const orig = new Date(Date.UTC(oy, om-1, od));
+        const tgt  = new Date(Date.UTC(ty, tm-1, td));
+        const match =
+          ev.recurrence === 'daily' ? true :
+          ev.recurrence === 'weekly' ? orig.getUTCDay() === tgt.getUTCDay() :
+          ev.recurrence === 'monthly' ? od === td :
+          ev.recurrence === 'yearly' ? (od === td && om === tm) : false;
+        if (match) occurrences.push({ dk: todayDk, ev });
+      }
+    }
+  }
+  for (const { dk, ev } of occurrences) {
+    {
       const rems = ev.reminders || ev.rems || [];
       if (!rems.length) continue;
 
