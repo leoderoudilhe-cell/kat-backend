@@ -974,6 +974,57 @@ app.get('/api/cron', (_, res) => {
 });
 app.head('/api/cron', (_, res) => res.status(200).end());
 
+// ═══ ACTUALITÉ DU JOUR (Google News RSS FR) — titres + liens vers l'article ═══
+let _newsCache = { ts: 0, items: [] };
+function fetchGoogleNews() {
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'news.google.com',
+      path: '/rss?hl=fr&gl=FR&ceid=FR:fr',
+      method: 'GET',
+      headers: { 'User-Agent': 'Mozilla/5.0 (KAT/3.0)' },
+    }, res => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => {
+        try {
+          const items = [];
+          const re = /<item>([\s\S]*?)<\/item>/g;
+          let m;
+          while ((m = re.exec(d)) && items.length < 12) {
+            const block = m[1];
+            const grab = (tag) => {
+              const r = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`).exec(block);
+              if (!r) return '';
+              return r[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+            };
+            let title = grab('title');
+            const link = grab('link');
+            const source = grab('source');
+            const pub = grab('pubDate');
+            // Google News titre = "Titre - Source" → on retire la source en double
+            if (source && title.endsWith(' - ' + source)) title = title.slice(0, -(source.length + 3));
+            if (title && link) items.push({ title, link, source, pub });
+          }
+          resolve(items);
+        } catch(e) { resolve([]); }
+      });
+    });
+    req.on('error', () => resolve([]));
+    req.setTimeout(7000, () => { req.destroy(); resolve([]); });
+    req.end();
+  });
+}
+app.get('/api/news', async (_, res) => {
+  // Cache 15 min pour ne pas marteler Google
+  if (Date.now() - _newsCache.ts < 15 * 60 * 1000 && _newsCache.items.length) {
+    return res.json({ items: _newsCache.items, cached: true });
+  }
+  const items = await fetchGoogleNews();
+  if (items.length) _newsCache = { ts: Date.now(), items };
+  res.json({ items: _newsCache.items, cached: false });
+});
+
 // Test push — send immediate notification to all devices
 app.post('/api/push-test', async (req, res) => {
   if (!_pushSubs.length) return res.status(404).json({ error: 'No subscriptions', count: 0 });

@@ -25,6 +25,14 @@
   --shadow: 0 2px 12px rgba(0,0,0,0.08);
   --radius: 16px;
   --radius-sm: 10px;
+  --green: #34C759;
+  --red: #FF3B30;
+  --blue: #007AFF;
+  --orange: #FF9500;
+  --toast-bg: rgba(28,28,30,0.96);
+  --toast-text: #FFFFFF;
+  --undo-bg: rgba(44,44,46,0.97);
+  --kat-rgb: 244,114,182;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bot: env(safe-area-inset-bottom, 0px);
 }
@@ -36,6 +44,13 @@
   --text3: #48484A;
   --border: rgba(255,255,255,0.08);
   --shadow: 0 2px 12px rgba(0,0,0,0.4);
+  --green: #30D158;
+  --red: #FF453A;
+  --blue: #0A84FF;
+  --orange: #FF9F0A;
+  --toast-bg: rgba(58,58,60,0.98);
+  --toast-text: #FFFFFF;
+  --undo-bg: rgba(58,58,60,0.98);
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; font-size: 15px; overflow: hidden; }
@@ -80,9 +95,12 @@ input, textarea { font-family: inherit; }
 .course-cat-icon { font-size:20px; }
 .course-cat-name { font-weight:700; font-size:14px; flex:1; }
 .course-cat-count { font-size:12px; color:var(--text2); background:var(--border); border-radius:12px; padding:2px 8px; }
-.course-item { min-height:48px; display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid var(--border); transition:opacity .2s; }
+.course-item { position:relative; min-height:52px; display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid var(--border); transition:opacity .2s, background .2s; }
 .course-item:last-child { border-bottom:none; }
 .course-item.checked { opacity:0.45; }
+.course-item.deleting { background:rgba(255,59,48,0.12); }
+.course-item.deleting::after { content:'🗑'; position:absolute; right:14px; top:50%; transform:translateY(-50%); font-size:16px; animation:delPulse .7s ease-out; }
+@keyframes delPulse { from{opacity:0;transform:translateY(-50%) scale(0.5);} to{opacity:1;transform:translateY(-50%) scale(1.1);} }
 .course-check { font-size:22px; flex-shrink:0; cursor:pointer; user-select:none; }
 .course-item-body { flex:1; min-width:0; }
 .course-item-name { font-size:15px; }
@@ -320,7 +338,8 @@ input, textarea { font-family: inherit; }
 /* ═══ TOAST ═══ */
 #toast {
   position: fixed; bottom: calc(var(--safe-bot) + 80px); left: 50%; transform: translateX(-50%) translateY(20px);
-  background: #1C1C1E; color: white; padding: 10px 18px; border-radius: 20px;
+  background: var(--toast-bg); color: var(--toast-text); padding: 10px 18px; border-radius: 20px;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   font-size: 14px; font-weight: 600; z-index: 1000;
   opacity: 0; transition: all .3s; pointer-events: none; white-space: nowrap;
 }
@@ -329,7 +348,8 @@ input, textarea { font-family: inherit; }
 /* ═══ UNDO BAR ═══ */
 #undo-bar {
   position: fixed; bottom: calc(var(--safe-bot) + 70px); left: 16px; right: 16px;
-  background: #2C2C2E; color: white; border-radius: var(--radius-sm);
+  background: var(--undo-bg); color: white; border-radius: var(--radius-sm);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
   z-index: 900; transform: translateY(100px); opacity: 0;
   transition: all .3s cubic-bezier(.32,0,.67,0);
@@ -461,7 +481,7 @@ input, textarea { font-family: inherit; }
   position: fixed; bottom: calc(var(--safe-bot) + 74px); right: 20px;
   width: 54px; height: 54px; border-radius: 50%; background: var(--kat);
   color: white; font-size: 26px; display:flex;align-items:center;justify-content:center;
-  box-shadow: 0 4px 20px rgba(139,92,246,0.4); z-index: 200;
+  box-shadow: 0 4px 20px rgba(var(--kat-rgb),0.45); z-index: 200;
   transition: transform .15s; -webkit-tap-highlight-color: transparent;
 }
 .add-fab:active { transform: scale(0.92); }
@@ -1417,6 +1437,10 @@ document.getElementById('undo-btn').onclick = async () => {
   } else if (item.type === 'ptodo') {
     S.ptodos.push(item.data.item);
     await saveData();
+  } else if (item.type === 'courses-bulk') {
+    if (!S.courses.items) S.courses.items = [];
+    item.data.items.forEach(it => S.courses.items.push(it));
+    await saveData();
   }
   render();
 };
@@ -1431,17 +1455,19 @@ function render() {
     if (S.view === 'day') {
       renderDay(content);
       if (S.date === dateKey(new Date())) {
-        setTimeout(() => {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
           const grid = document.getElementById('hour-grid');
           if (grid && !grid._scrolledToNow) {
             const now = new Date();
-            const nowH = now.getHours();
-            if (nowH >= 6 && nowH <= 22) {
-              grid.scrollTop = Math.max(0, (nowH - 7) * 80);
+            const nowMin = now.getHours()*60 + now.getMinutes();
+            if (now.getHours() >= 6 && now.getHours() <= 22) {
+              // Centre l'heure actuelle dans la zone visible
+              const nowTop = (nowMin/60 - 6) * 80;
+              grid.scrollTop = Math.max(0, nowTop - grid.clientHeight/2 + 40);
               grid._scrolledToNow = true;
             }
           }
-        }, 50);
+        }));
       }
     }
     else if (S.view === 'week')  renderWeek(content);
@@ -1488,10 +1514,9 @@ function updateNavUI() {
 }
 function updateDateLabel() {
   const d = parseDate(S.date);
-  const opts = S.view === 'day'
+  const dayFmt = (S.tab === 'journal' || S.tab === 'todos' || S.view === 'day');
+  const opts = dayFmt
     ? { weekday:'long', day:'numeric', month:'long' }
-    : S.view === 'week'
-    ? { month:'long', year:'numeric' }
     : { month:'long', year:'numeric' };
   const label = document.getElementById('date-label');
   label.textContent = d.toLocaleDateString('fr-FR', opts);
@@ -1515,6 +1540,24 @@ function renderDay(container) {
   const pct = todos.length ? Math.round(doneTodos/todos.length*100) : 0;
 
   let html = '<div style="padding:12px;display:flex;flex-direction:column;gap:12px">';
+
+  // ── Bannière "prochain événement" (assistant : sait ce qui arrive maintenant) ──
+  if (isToday(S.date)) {
+    const next = getNextEventToday();
+    if (next) {
+      const cat = getCat(next.ev.catId);
+      const mins = next.minsUntil;
+      const when = mins <= 0 ? "Maintenant" : mins < 60 ? `Dans ${mins} min` : `Dans ${Math.floor(mins/60)}h${String(mins%60).padStart(2,'0')}`;
+      html += `<div style="background:linear-gradient(135deg,var(--kat),var(--kat2));border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:12px;box-shadow:0 4px 16px rgba(var(--kat-rgb),0.35)">
+        <div style="font-size:30px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.2))">${cat.emoji}</div>
+        <div style="flex:1;min-width:0;color:white">
+          <div style="font-size:11px;font-weight:700;opacity:0.9;text-transform:uppercase;letter-spacing:0.5px">${when}</div>
+          <div style="font-size:16px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(next.ev.title)}</div>
+          <div style="font-size:12px;opacity:0.9">${escHtml(next.ev.time)}${next.ev.location ? ' · 📍 '+escHtml(next.ev.location.split(',')[0]) : ''}</div>
+        </div>
+      </div>`;
+    }
+  }
 
   // Météo mini-widget si c'est aujourd'hui
   if (isToday(S.date)) {
@@ -1695,6 +1738,24 @@ function renderDay(container) {
   });
 }
 
+// Prochain événement à venir aujourd'hui (heure >= maintenant), non terminé
+function getNextEventToday() {
+  const todayKey = dateKey(new Date());
+  const now = new Date();
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  let best = null;
+  for (const { ev, dateKey: dk } of eventsForDay(todayKey)) {
+    if (!ev.time || isEventDone(ev, dk)) continue;
+    const [h, m] = ev.time.split(':').map(Number);
+    const evMin = h*60 + m;
+    const dur = ev.duration || 60;
+    if (evMin + dur < nowMin) continue; // déjà passé
+    const minsUntil = evMin - nowMin;
+    if (!best || minsUntil < best.minsUntil) best = { ev, minsUntil };
+  }
+  return best;
+}
+
 function formatEventTime(ev) {
   if (!ev.time) return '';
   const [h, m] = ev.time.split(':').map(Number);
@@ -1753,9 +1814,10 @@ function renderTodoItem(todo, dk) {
     <div class="todo-check${todo.done?' done':''}" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}"></div>
     <span class="todo-text${todo.done?' done':''}"></span>${prioBadge}
     <div style="display:flex;gap:2px;margin-left:auto">
-      <button class="todo-up-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:13px;color:var(--text3);width:26px;height:26px;display:flex;align-items:center;justify-content:center" ${idx===0?'disabled':''} title="Monter">↑</button>
-      <button class="todo-down-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:13px;color:var(--text3);width:26px;height:26px;display:flex;align-items:center;justify-content:center" ${idx===total-1?'disabled':''} title="Descendre">↓</button>
-      <button class="todo-del-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:15px;color:var(--text3);width:28px;height:28px;display:flex;align-items:center;justify-content:center">🗑</button>
+      <button class="todo-up-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:13px;color:var(--text3);width:30px;height:34px;display:flex;align-items:center;justify-content:center" ${idx===0?'disabled':''} title="Monter">↑</button>
+      <button class="todo-down-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:13px;color:var(--text3);width:30px;height:34px;display:flex;align-items:center;justify-content:center" ${idx===total-1?'disabled':''} title="Descendre">↓</button>
+      <button class="todo-defer-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:14px;color:var(--kat);width:30px;height:34px;display:flex;align-items:center;justify-content:center" title="Reporter à demain">→</button>
+      <button class="todo-del-btn" data-todo-id="${escHtml(todo.id)}" data-todo-date="${escHtml(dk)}" style="font-size:15px;color:var(--text3);width:30px;height:34px;display:flex;align-items:center;justify-content:center">🗑</button>
     </div>
   </div>`;
 }
@@ -1832,13 +1894,14 @@ function attachEventHandlers(container) {
       // Barre de progression de suppression (apparaît après 250ms pour ne pas flasher sur un tap)
       barTimer = setTimeout(() => {
         bar = document.createElement('div');
-        bar.style.cssText = 'position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,0.55);border-radius:10px;pointer-events:none;z-index:5;transition:width 0.95s linear';
+        bar.style.cssText = 'position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,0.5);border-radius:10px;pointer-events:none;z-index:5;transition:width 1.4s linear;display:flex;align-items:center;justify-content:center';
+        bar.innerHTML = '<span style="color:rgba(0,0,0,0.45);font-size:11px;font-weight:700;white-space:nowrap">Maintiens pour terminer…</span>';
         el.appendChild(bar);
         requestAnimationFrame(() => { if (bar) bar.style.width = '100%'; });
         haptic(15); // léger feedback : la barre démarre
-      }, 250);
+      }, 350);
 
-      // Suppression après 1200ms si elle reste immobile
+      // Suppression après 1700ms si elle reste immobile (assez long pour éviter les accidents)
       deleteTimer = setTimeout(() => {
         if (moved || dragging) return;
         deleted = true;
@@ -1871,7 +1934,7 @@ function attachEventHandlers(container) {
           render();
           toast('🎉 Événement terminé et supprimé !');
         }, 450);
-      }, 1200);
+      }, 1700);
     }, { passive: true });
 
     el.addEventListener('touchmove', e => {
@@ -2078,6 +2141,27 @@ function attachEventHandlers(container) {
       const arr = S.todos[dk];
       const idx = arr.findIndex(t => t.id === id);
       if (idx < arr.length - 1) { [arr[idx], arr[idx+1]] = [arr[idx+1], arr[idx]]; await saveData(); render(); }
+    });
+  });
+
+  // Todo report au lendemain
+  container.querySelectorAll('.todo-defer-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const dk = btn.dataset.todoDate;
+      const id = btn.dataset.todoId;
+      const arr = S.todos[dk] || [];
+      const idx = arr.findIndex(t => t.id === id);
+      if (idx === -1) return;
+      const [moved] = arr.splice(idx, 1);
+      const nd = parseDate(dk); nd.setDate(nd.getDate() + 1);
+      const tomorrowKey = dateKey(nd);
+      moved.done = false; moved.date = tomorrowKey;
+      ensureTodos(tomorrowKey);
+      S.todos[tomorrowKey].push(moved);
+      haptic(20);
+      await saveData();
+      render();
+      toast('→ Reporté à demain');
     });
   });
 
@@ -3054,9 +3138,11 @@ let _lastSlideDir = 0;
 function shiftDate(delta) {
   _lastSlideDir = delta;
   const d = parseDate(S.date);
-  if (S.view === 'day')   d.setDate(d.getDate() + delta);
-  else if (S.view === 'week')  d.setDate(d.getDate() + delta*7);
-  else if (S.view === 'month') d.setMonth(d.getMonth() + delta);
+  // En Journal et Tâches on navigue toujours jour par jour (pas de vues semaine/mois)
+  const step = (S.tab === 'journal' || S.tab === 'todos') ? 'day' : S.view;
+  if (step === 'day')   d.setDate(d.getDate() + delta);
+  else if (step === 'week')  d.setDate(d.getDate() + delta*7);
+  else if (step === 'month') d.setMonth(d.getMonth() + delta);
   S.date = dateKey(d);
   render();
 }
@@ -3754,6 +3840,38 @@ async function showBriefing() {
   const bdayNames = card.querySelectorAll('.bday-name');
   birthdays.forEach(({ev}, i) => { if (bdayNames[i]) bdayNames[i].textContent = ev.title; });
 
+  // ── Actualité du jour (Google News FR via serveur) — liens cliquables ──
+  try {
+    const nresp = await fetch('/api/news', { signal: AbortSignal.timeout(8000) });
+    if (nresp.ok) {
+      const ndata = await nresp.json();
+      const items = (ndata.items || []).slice(0, 5);
+      if (items.length) {
+        const newsDiv = document.createElement('div');
+        newsDiv.style.cssText = 'padding:14px;background:var(--bg);border-radius:12px;margin-top:8px';
+        const t = document.createElement('div');
+        t.className = 'section-title';
+        t.textContent = "📰 L'actu du jour";
+        newsDiv.appendChild(t);
+        items.forEach(it => {
+          const a = document.createElement('a');
+          a.href = it.link; a.target = '_blank'; a.rel = 'noopener';
+          a.style.cssText = 'display:block;padding:9px 0;border-bottom:1px solid var(--border);text-decoration:none;color:var(--text)';
+          const title = document.createElement('div');
+          title.style.cssText = 'font-size:13px;font-weight:600;line-height:1.4';
+          title.textContent = it.title;
+          const src = document.createElement('div');
+          src.style.cssText = 'font-size:11px;color:var(--kat);margin-top:2px;font-weight:600';
+          src.textContent = (it.source || 'Lire l\'article') + ' ›';
+          a.appendChild(title); a.appendChild(src);
+          newsDiv.appendChild(a);
+        });
+        newsDiv.lastChild.style.borderBottom = 'none';
+        card.appendChild(newsDiv);
+      }
+    }
+  } catch(e) { /* hors-ligne : on saute l'actu */ }
+
   // ── Culture générale : Wikipedia "ce jour dans l'histoire" ──
   try {
     const d = new Date();
@@ -3875,22 +3993,51 @@ async function showBriefing() {
     { emoji:'🐡', fact:'Le poisson archer crache de l\'eau avec une précision chirurgicale pour abattre des insectes jusqu\'à 3 mètres au-dessus de la surface, en compensant la réfraction lumineuse.' },
   ];
 
-  // Anecdote fixe par jour de l'année — change chaque matin, stable toute la journée
-  const now = new Date();
-  const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
-  const mariPick = marineAnecdotes[dayOfYear % marineAnecdotes.length];
+  // Anecdote qui avance d'un cran CHAQUE jour (pas de répétition annuelle figée),
+  // avec un pas premier pour bien balayer toute la liste + bouton "autre anecdote".
+  const marineToday = dateKey(new Date());
+  let idx = parseInt(localStorage.getItem('kat_marine_idx') || '');
+  if (isNaN(idx)) idx = Math.floor(Math.random() * marineAnecdotes.length);
+  const lastDay = localStorage.getItem('kat_marine_day');
+  if (lastDay !== marineToday) {
+    // 17 = premier avec la longueur de liste → cycle complet sans répétition
+    idx = (idx + 17) % marineAnecdotes.length;
+    localStorage.setItem('kat_marine_idx', String(idx));
+    localStorage.setItem('kat_marine_day', marineToday);
+  }
+
   const marineDiv = document.createElement('div');
   marineDiv.style.cssText = 'padding:12px;background:linear-gradient(135deg,rgba(0,168,255,0.08),rgba(0,100,200,0.05));border-radius:10px;margin-top:8px;border-left:3px solid #0EA5E9';
+  const mariHead = document.createElement('div');
+  mariHead.style.cssText = 'display:flex;align-items:center;justify-content:space-between';
   const mariTitle = document.createElement('div');
   mariTitle.className = 'section-title';
+  mariTitle.style.marginBottom = '0';
   mariTitle.textContent = '🌊 Fonds marins & Océan';
+  const mariBtn = document.createElement('button');
+  mariBtn.textContent = '🔄';
+  mariBtn.style.cssText = 'background:none;border:none;font-size:16px;cursor:pointer;padding:2px 6px';
+  mariBtn.title = 'Une autre anecdote';
+  mariHead.appendChild(mariTitle); mariHead.appendChild(mariBtn);
   const mariEmoji = document.createElement('div');
   mariEmoji.style.cssText = 'font-size:28px;margin:6px 0 4px';
-  mariEmoji.textContent = mariPick.emoji;
   const mariText = document.createElement('div');
   mariText.style.cssText = 'font-size:13px;color:var(--text2);line-height:1.6';
-  mariText.textContent = mariPick.fact;
-  marineDiv.appendChild(mariTitle);
+  const paint = () => {
+    const pick = marineAnecdotes[idx % marineAnecdotes.length];
+    mariEmoji.textContent = pick.emoji;
+    mariText.textContent = pick.fact;
+  };
+  paint();
+  mariBtn.addEventListener('click', () => {
+    idx = (idx + 1) % marineAnecdotes.length;
+    localStorage.setItem('kat_marine_idx', String(idx));
+    haptic(15);
+    mariText.style.opacity = '0';
+    setTimeout(() => { paint(); mariText.style.opacity = '1'; }, 120);
+  });
+  mariText.style.transition = 'opacity .12s';
+  marineDiv.appendChild(mariHead);
   marineDiv.appendChild(mariEmoji);
   marineDiv.appendChild(mariText);
   card.appendChild(marineDiv);
@@ -3927,17 +4074,30 @@ function setCachedWeather(data) {
 
 async function fetchWeatherWidget() {
   try {
-    const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=43.5513&longitude=7.0128&current_weather=true&timezone=Europe/Paris', { signal: AbortSignal.timeout(5000) });
+    const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=43.5513&longitude=7.0128&current_weather=true&hourly=apparent_temperature,precipitation_probability&daily=temperature_2m_max,temperature_2m_min&timezone=Europe/Paris&forecast_days=1', { signal: AbortSignal.timeout(5000) });
     if (!r.ok) return;
     const d = await r.json();
     const cw = d.current_weather;
     const wcode = cw.weathercode;
-    const wEmoji = wcode <= 1 ? '☀️' : wcode <= 3 ? '⛅' : wcode <= 67 ? '🌧️' : wcode <= 77 ? '❄️' : '🌩️';
+    const wEmoji = wcode <= 1 ? '☀️' : wcode <= 3 ? '⛅' : wcode <= 48 ? '🌫️' : wcode <= 67 ? '🌧️' : wcode <= 77 ? '❄️' : wcode <= 82 ? '🌧️' : '🌩️';
     const temp = Math.round(cw.temperature);
+    // Ressenti + pluie max sur les prochaines heures
+    let feels = temp, rainMax = 0;
+    try {
+      const nowH = new Date().getHours();
+      if (d.hourly && d.hourly.apparent_temperature) {
+        feels = Math.round(d.hourly.apparent_temperature[nowH] ?? temp);
+        rainMax = Math.max(...(d.hourly.precipitation_probability || []).slice(nowH, nowH + 6).filter(x=>x!=null), 0);
+      }
+    } catch(e){}
+    const tmax = d.daily ? Math.round(d.daily.temperature_2m_max[0]) : temp;
+    const tmin = d.daily ? Math.round(d.daily.temperature_2m_min[0]) : temp;
     let tip = '';
-    if (temp > 25) tip = '☀️ Légère, lunettes de soleil';
-    else if (wcode > 40 && wcode <= 67) tip = '🌂 Prends un imperméable';
-    else if (temp < 15) tip = '🧥 Veste chaude conseillée';
+    if (rainMax >= 50) tip = `🌂 ${rainMax}% de pluie — prends un parapluie`;
+    else if (temp >= 28) tip = '🥵 Chaud — chapeau, eau, lunettes';
+    else if (temp >= 23) tip = '😎 Belle journée — tenue légère';
+    else if (temp <= 8) tip = '🧥 Froid — manteau et écharpe';
+    else if (temp <= 14) tip = '🧥 Frais — prends une veste';
     else tip = '👕 Temps agréable';
     const w = document.getElementById('weather-widget');
     const icon = document.getElementById('weather-icon');
@@ -3945,7 +4105,7 @@ async function fetchWeatherWidget() {
     const tipEl = document.getElementById('weather-tip');
     if (w && icon && tempEl && tipEl) {
       icon.textContent = wEmoji;
-      tempEl.textContent = `${temp}°C à Cannes`;
+      tempEl.textContent = `${temp}°C à Cannes · ressenti ${feels}° · ${tmin}°/${tmax}°`;
       tipEl.textContent = tip;
       w.style.display = '';
     }
@@ -5045,16 +5205,23 @@ function startCoursePress(id, e) {
   // Ne pas armer la suppression quand elle tape la coche
   if (e && e.target && e.target.closest('.course-check')) return;
   _coursePressId = id;
+  const el = e && e.currentTarget ? e.currentTarget : document.querySelector(`.course-item[data-id="${id}"]`);
   clearTimeout(_coursePressTimer);
+  // Feedback visuel d'armement après 200ms (pas sur un simple tap)
+  _coursePressArmTimer = setTimeout(() => { if (el) el.classList.add('deleting'); haptic(15); }, 200);
   _coursePressTimer = setTimeout(async () => {
     _coursePressTimer = null;
+    if (el) el.classList.remove('deleting');
     haptic([60, 30, 60]);
     await deleteCourseItem(id);
-  }, 600);
+  }, 750);
 }
 function endCoursePress() {
   if (_coursePressTimer) { clearTimeout(_coursePressTimer); _coursePressTimer = null; }
+  if (_coursePressArmTimer) { clearTimeout(_coursePressArmTimer); _coursePressArmTimer = null; }
+  document.querySelectorAll('.course-item.deleting').forEach(el => el.classList.remove('deleting'));
 }
+let _coursePressArmTimer = null;
 
 async function addCourseItem(name, category, qty) {
   if (!name.trim()) return;
@@ -5096,10 +5263,18 @@ async function deleteCourseItem(id) {
 }
 
 async function clearCheckedItems() {
+  const removed = (S.courses.items||[]).filter(i => i.checked);
+  if (!removed.length) return;
   S.courses.items = (S.courses.items||[]).filter(i => !i.checked);
   await saveData();
   render();
-  toast('🗑 Articles cochés supprimés');
+  // Undo possible (évite la perte de données silencieuse)
+  const bar = document.getElementById('undo-bar');
+  document.getElementById('undo-msg').textContent = `🛒 ${removed.length} article${removed.length>1?'s':''} effacé${removed.length>1?'s':''}`;
+  bar.classList.add('show');
+  clearTimeout(_undoTimer);
+  _undoStack.push({ type: 'courses-bulk', data: { items: removed } });
+  _undoTimer = setTimeout(() => { bar.classList.remove('show'); _undoStack = []; }, 5000);
 }
 
 async function uncheckAll() {
