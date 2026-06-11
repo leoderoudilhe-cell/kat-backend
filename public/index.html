@@ -464,6 +464,8 @@ input, textarea { font-family: inherit; }
   0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
   100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
 }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
 /* ═══ TRANSITIONS VUE ═══ */
 #content { transition: opacity 0.2s ease; }
@@ -719,6 +721,13 @@ input, textarea { font-family: inherit; }
         <button class="todo-prio-chip selected" data-prio="medium" style="flex:1;border:2px solid #FF9500;background:rgba(255,149,0,0.2);color:#FF9500;border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transform:scale(1.05)">🟡 Moyenne</button>
         <button class="todo-prio-chip" data-prio="low"    style="flex:1;border:2px solid #8E8E93;background:rgba(142,142,147,0.1);color:#8E8E93;border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">⚪ Basse</button>
       </div>
+      <div class="section-title" style="margin-top:4px">Répéter</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap" id="todo-rec-chips">
+        <button class="todo-rec-chip selected" data-rec="none" style="flex:1;min-width:70px;border:1.5px solid var(--border);background:var(--bg);border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--text)">Non</button>
+        <button class="todo-rec-chip" data-rec="daily" style="flex:1;min-width:70px;border:1.5px solid var(--border);background:var(--bg);border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--text)">Chaque jour</button>
+        <button class="todo-rec-chip" data-rec="weekdays" style="flex:1;min-width:70px;border:1.5px solid var(--border);background:var(--bg);border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--text)">Lun→Ven</button>
+        <button class="todo-rec-chip" data-rec="weekly" style="flex:1;min-width:70px;border:1.5px solid var(--border);background:var(--bg);border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--text)">Chaque sem.</button>
+      </div>
     </div>
   </div>
 </div>
@@ -740,6 +749,14 @@ input, textarea { font-family: inherit; }
     <div class="form-group">
       <label class="form-label">Quantité (optionnel)</label>
       <input class="form-input" id="course-qty-input" type="text" placeholder="Ex : 500g, 2, 1 bouteille" maxlength="40">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px" id="course-qty-chips">
+        <button type="button" class="qty-chip" data-qty="x1" style="padding:6px 12px;border-radius:16px;background:var(--bg);border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">x1</button>
+        <button type="button" class="qty-chip" data-qty="x2" style="padding:6px 12px;border-radius:16px;background:var(--bg);border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">x2</button>
+        <button type="button" class="qty-chip" data-qty="x3" style="padding:6px 12px;border-radius:16px;background:var(--bg);border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">x3</button>
+        <button type="button" class="qty-chip" data-qty="500g" style="padding:6px 12px;border-radius:16px;background:var(--bg);border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">500g</button>
+        <button type="button" class="qty-chip" data-qty="1kg" style="padding:6px 12px;border-radius:16px;background:var(--bg);border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">1kg</button>
+        <button type="button" class="qty-chip" data-qty="1L" style="padding:6px 12px;border-radius:16px;background:var(--bg);border:1px solid var(--border);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">1L</button>
+      </div>
     </div>
     <div class="form-group">
       <label class="form-label">Catégorie</label>
@@ -753,6 +770,15 @@ input, textarea { font-family: inherit; }
   <div class="settings-header">
     <button class="btn-ghost" onclick="closeSettings()">‹ Retour</button>
     <h2>Paramètres</h2>
+  </div>
+  <div class="settings-section">
+    <div class="section-title">Profil</div>
+    <div style="background:var(--card);border-radius:var(--radius-sm);overflow:hidden">
+      <div class="settings-row">
+        <span class="settings-row-label">Prénom</span>
+        <input type="text" id="name-input" maxlength="20" placeholder="Camille" style="text-align:right;border:none;background:none;font-size:15px;color:var(--text);outline:none;max-width:140px;font-family:inherit">
+      </div>
+    </div>
   </div>
   <div class="settings-section">
     <div class="section-title">Notifications</div>
@@ -1213,7 +1239,7 @@ async function pushToServer() {
         } catch(e) {}
       }
     }
-    const settingsClean = { dark: S.settings.dark, soundName: S.settings.soundName };
+    const settingsClean = { dark: S.settings.dark, soundName: S.settings.soundName, name: S.settings.name };
     const payload = {
       events: S.events, todos: S.todos, journal: journalClean,
       cats: S.cats, courses: S.courses, ptodos: S.ptodos,
@@ -2420,10 +2446,25 @@ async function savePtodo() {
 
 
 // ═══ JOURNAL TAB ═══
+const JOURNAL_PROMPTS = [
+  "Comment s'est passée ta journée ? 🐱",
+  "Qu'est-ce qui t'a fait sourire aujourd'hui ?",
+  "Une chose dont tu es fière aujourd'hui ?",
+  "Qu'est-ce qui t'a surprise aujourd'hui ?",
+  "Pour quoi es-tu reconnaissante aujourd'hui ?",
+  "Quel a été le meilleur moment de ta journée ?",
+  "Qu'est-ce que tu as appris aujourd'hui ?",
+  "Comment te sens-tu, là, maintenant ?",
+  "Une petite victoire du jour ?",
+  "Qu'est-ce qui t'a fait du bien aujourd'hui ?",
+];
 function renderJournal(container) {
   const entry = S.journal[S.date] || {};
-  const moods = ['😊','😐','😔','😤','🥰'];
+  const moods = ['🥰','😊','😐','😔','😤','😴'];
   const currentMood = entry.mood;
+  // Prompt d'écriture rotatif (stable dans la journée, change chaque jour)
+  const dn = Math.floor((parseDate(S.date) - new Date(parseDate(S.date).getFullYear(),0,0)) / 86400000);
+  const prompt = JOURNAL_PROMPTS[dn % JOURNAL_PROMPTS.length];
 
   let html = '<div style="padding:12px;display:flex;flex-direction:column;gap:12px">';
 
@@ -2447,7 +2488,7 @@ function renderJournal(container) {
     html += `<button class="mood-btn${mood===currentMood?' active':''}" data-mood="${mood}">${mood}</button>`;
   }
   html += '</div>';
-  html += `<textarea class="journal-textarea" id="journal-text" placeholder="Comment s'est passée ta journée ? 🐱" maxlength="2000">${escHtml(entry.text||'')}</textarea>`;
+  html += `<textarea class="journal-textarea" id="journal-text" placeholder="${escHtml(prompt)}" maxlength="2000">${escHtml(entry.text||'')}</textarea>`;
   html += '<button class="btn-primary" id="journal-save-btn" style="margin-top:10px">Enregistrer 📔</button>';
   // Boutons partage esthétique
   html += `<div style="display:flex;gap:8px;margin-top:10px">
@@ -2470,8 +2511,29 @@ function renderJournal(container) {
       📷
     </label>`;
   }
-  html += '</div></div></div></div>';
+  html += '</div></div></div>'; // ferme photo-grid, section, card
+
+  // ── Souvenir "à cette date l'an dernier" ──
+  const ly = parseDate(S.date); ly.setFullYear(ly.getFullYear() - 1);
+  const lyEntry = S.journal[dateKey(ly)];
+  if (lyEntry && (lyEntry.text || lyEntry.mood || (lyEntry.photos||[]).length)) {
+    const lyDateStr = ly.toLocaleDateString('fr-FR', { day:'numeric', month:'long', year:'numeric' });
+    html += `<div class="card"><div class="section">
+      <div class="section-title">🕰️ Il y a un an — ${escHtml(lyDateStr)}</div>
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        ${(lyEntry.photos||[]).length ? `<img src="${escHtml(lyEntry.photos[0])}" style="width:64px;height:64px;border-radius:10px;object-fit:cover;flex-shrink:0">` : ''}
+        <div style="flex:1;min-width:0">
+          ${lyEntry.mood ? `<div style="font-size:22px;margin-bottom:4px">${escHtml(lyEntry.mood)}</div>` : ''}
+          <div class="ly-text" style="font-size:13px;color:var(--text2);line-height:1.5"></div>
+        </div>
+      </div>
+    </div></div>`;
+  }
+
+  html += '</div>'; // ferme le wrapper
   container.innerHTML = html;
+  const lyTextEl = container.querySelector('.ly-text');
+  if (lyTextEl && lyEntry) lyTextEl.textContent = (lyEntry.text||'').slice(0, 200) || '(photo / humeur)';
 
   // Set birthday banner text safely
   const bdayBanner = container.querySelector('.bday-banner-title');
@@ -3065,9 +3127,28 @@ document.getElementById('ev-duplicate-btn').addEventListener('click', () => {
 // ═══ TODO MODAL ═══
 function openTodoModal() {
   document.getElementById('todo-text-input').value = '';
+  // Reset récurrence à "Non"
+  document.querySelectorAll('#todo-rec-chips .todo-rec-chip').forEach(c => {
+    const on = c.dataset.rec === 'none';
+    c.classList.toggle('selected', on);
+    c.style.background = on ? 'var(--kat)' : 'var(--bg)';
+    c.style.color = on ? 'white' : 'var(--text)';
+    c.style.borderColor = on ? 'var(--kat)' : 'var(--border)';
+  });
   document.getElementById('todo-modal').classList.add('open');
   setTimeout(() => document.getElementById('todo-text-input').focus(), 300);
 }
+// Sélection chip récurrence
+document.getElementById('todo-rec-chips')?.querySelectorAll('.todo-rec-chip').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#todo-rec-chips .todo-rec-chip').forEach(bb => {
+      bb.classList.remove('selected');
+      bb.style.background = 'var(--bg)'; bb.style.color = 'var(--text)'; bb.style.borderColor = 'var(--border)';
+    });
+    b.classList.add('selected');
+    b.style.background = 'var(--kat)'; b.style.color = 'white'; b.style.borderColor = 'var(--kat)';
+  });
+});
 function closeTodoModal() { document.getElementById('todo-modal').classList.remove('open'); }
 document.getElementById('todo-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('todo-modal')) closeTodoModal();
@@ -3077,12 +3158,32 @@ document.getElementById('todo-save-btn').addEventListener('click', async () => {
   if (!text) { toast('⚠️ Texte requis'); return; }
   const selChip = document.querySelector('.todo-prio-chip.selected');
   const priority = selChip?.dataset.prio || 'medium';
-  ensureTodos(S.date);
-  S.todos[S.date].push({ id: uid(), text, done: false, date: S.date, priority });
+  const rec = document.querySelector('#todo-rec-chips .todo-rec-chip.selected')?.dataset.rec || 'none';
+
+  if (rec === 'none') {
+    ensureTodos(S.date);
+    S.todos[S.date].push({ id: uid(), text, done: false, date: S.date, priority });
+  } else {
+    // Matérialise la tâche sur les 28 prochains jours (inclus aujourd'hui)
+    const recId = uid();
+    const base = parseDate(S.date);
+    let count = 0;
+    for (let i = 0; i < 28; i++) {
+      const d = new Date(base); d.setDate(base.getDate() + i);
+      const dow = d.getDay(); // 0=dim
+      if (rec === 'weekdays' && (dow === 0 || dow === 6)) continue;
+      if (rec === 'weekly' && d.getDay() !== base.getDay()) continue;
+      const dk = dateKey(d);
+      ensureTodos(dk);
+      S.todos[dk].push({ id: uid(), text, done: false, date: dk, priority, recId });
+      count++;
+    }
+    toast(`🔁 Tâche répétée sur ${count} jours`);
+  }
   closeTodoModal();
   await saveData();
   render();
-  toast('✅ Tâche ajoutée');
+  if (rec === 'none') toast('✅ Tâche ajoutée');
 });
 
 // Priority chip selection in todo modal
@@ -3174,6 +3275,17 @@ document.getElementById('btn-settings').addEventListener('click', openSettings);
 function openSettings() {
   renderCatsSettings();
   document.getElementById('settings-panel').classList.add('open');
+  // Prénom
+  const nameInput = document.getElementById('name-input');
+  if (nameInput && !nameInput._wired) {
+    nameInput._wired = true;
+    nameInput.addEventListener('change', async () => {
+      S.settings.name = nameInput.value.trim();
+      await saveData();
+      toast('✅ Prénom enregistré');
+    });
+  }
+  if (nameInput) nameInput.value = S.settings.name || '';
   const dark = document.documentElement.dataset.dark === '1';
   document.getElementById('dark-toggle').classList.toggle('on', dark);
   const webcalUrl = 'webcal://kat-app.onrender.com/ical';
@@ -3742,9 +3854,26 @@ function doSearch(query) {
 
 // ═══ MORNING BRIEFING ═══
 document.getElementById('btn-briefing').addEventListener('click', showBriefing);
+function katName() {
+  const n = (S.settings.name || '').trim();
+  return n || 'Camille';
+}
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 6)  return 'Bonne nuit';
+  if (h < 12) return 'Bonjour';
+  if (h < 18) return 'Bel après-midi';
+  return 'Bonne soirée';
+}
 async function showBriefing() {
   const card = document.getElementById('briefing-content');
   card.innerHTML = '<p style="color:var(--text2)">Chargement… 🐱</p>';
+  const h2 = document.querySelector('#briefing-card h2');
+  if (h2) {
+    const h = new Date().getHours();
+    const emo = h < 12 ? '☀️' : h < 18 ? '🌤️' : '🌙';
+    h2.textContent = `${emo} ${greeting()} ${katName()}`;
+  }
   document.getElementById('briefing-overlay').classList.add('open');
 
   const today = S.date;
@@ -4819,6 +4948,7 @@ function initDark() {
 
 // ═══ AUTO-BRIEFING ═══
 function checkAutoBriefing() {
+  if (document.getElementById('onboard-overlay')) return; // pas pendant l'intro
   const today = dateKey(new Date());
   const key = 'kat_briefing_' + today;
   if (!localStorage.getItem(key)) {
@@ -4910,10 +5040,51 @@ function startServerKeepalive() {
   });
 }
 
+// ═══ ONBOARDING (première ouverture) ═══
+function maybeOnboard() {
+  if (localStorage.getItem('kat_onboarded')) return;
+  // Si elle a déjà des données (mise à jour d'une install existante), on saute l'intro
+  const hasData = Object.keys(S.events||{}).length || (S.courses?.items||[]).length || Object.keys(S.journal||{}).length;
+  if (hasData) { localStorage.setItem('kat_onboarded', '1'); return; }
+
+  const ov = document.createElement('div');
+  ov.id = 'onboard-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:2000;background:linear-gradient(160deg,#FECDD3,#FBCFE8,#F9A8D4);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;animation:fadeIn .4s';
+  ov.innerHTML = `
+    <div style="width:96px;height:96px;margin-bottom:20px">
+      <svg viewBox="0 0 100 100" width="96" height="96">
+        <rect width="100" height="100" rx="22" fill="#F472B6"/>
+        <polygon points="18,42 12,16 36,34" fill="#F9A8D4"/><polygon points="82,42 88,16 64,34" fill="#F9A8D4"/>
+        <circle cx="50" cy="60" r="30" fill="white"/>
+        <ellipse cx="38" cy="54" rx="5.5" ry="6.5" fill="#1a0533"/><ellipse cx="62" cy="54" rx="5.5" ry="6.5" fill="#1a0533"/>
+        <ellipse cx="50" cy="65" rx="2.5" ry="2" fill="#DB2777"/>
+      </svg>
+    </div>
+    <div style="font-size:28px;font-weight:900;color:#831843;margin-bottom:8px">Bienvenue sur KAT 🐱</div>
+    <div style="font-size:15px;color:#9D174D;line-height:1.5;margin-bottom:28px;max-width:300px">Ton agenda, tes tâches, ton journal, tes courses — ton assistant du quotidien, rien que pour toi.</div>
+    <div style="width:100%;max-width:300px;margin-bottom:16px">
+      <input id="onboard-name" type="text" placeholder="Ton prénom" maxlength="20" autocomplete="given-name"
+        style="width:100%;padding:14px 16px;border-radius:14px;border:none;font-size:17px;text-align:center;font-family:inherit;outline:none;box-shadow:0 4px 16px rgba(157,23,77,0.12)">
+    </div>
+    <button id="onboard-go" style="width:100%;max-width:300px;padding:15px;border-radius:14px;border:none;background:#DB2777;color:white;font-size:17px;font-weight:800;font-family:inherit;cursor:pointer;box-shadow:0 4px 16px rgba(219,39,119,0.35)">C'est parti ✨</button>`;
+  document.body.appendChild(ov);
+  setTimeout(() => document.getElementById('onboard-name')?.focus(), 400);
+  const finish = async () => {
+    const n = document.getElementById('onboard-name').value.trim();
+    if (n) { S.settings.name = n; await saveData(); }
+    localStorage.setItem('kat_onboarded', '1');
+    ov.style.transition = 'opacity .35s'; ov.style.opacity = '0';
+    setTimeout(() => { ov.remove(); checkAutoBriefing(); }, 350);
+  };
+  document.getElementById('onboard-go').addEventListener('click', finish);
+  document.getElementById('onboard-name').addEventListener('keydown', e => { if (e.key === 'Enter') finish(); });
+}
+
 async function boot() {
   await loadAll();
   initDark();
   render();
+  maybeOnboard();
   startServerKeepalive();
   // Register Service Worker for Web Push notifications
   if ('serviceWorker' in navigator) {
@@ -5125,9 +5296,7 @@ function renderCourses(container) {
 
   let bodyHtml = '';
   if (items.length === 0) {
-    const suggs = (S.courses.suggestions && S.courses.suggestions.length > 0)
-      ? S.courses.suggestions.slice(0,12)
-      : DEFAULT_SUGGESTIONS;
+    const suggs = topCourseSuggestions(12);
     const chipHtml = suggs.map(s => `<button class="suggestion-chip" data-name="${escHtml(s)}">${escHtml(s)}</button>`).join('');
     bodyHtml = `<div class="courses-empty">
       <div class="courses-empty-icon">🛒</div>
@@ -5192,11 +5361,81 @@ function renderCourses(container) {
         </div>
         <div class="courses-header-actions">${actionsHtml}</div>
       </div>
+      ${remaining > 0 ? `<button onclick="openStoreMode()" style="width:100%;padding:13px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--kat),var(--kat2));color:white;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer;margin-bottom:14px;box-shadow:0 4px 14px rgba(var(--kat-rgb),0.3)">🛒 Mode magasin</button>` : ''}
       ${bodyHtml}
     </div>`;
   container.scrollTop = prevScroll;
   container.querySelectorAll('.suggestion-chip').forEach(b =>
     b.addEventListener('click', () => quickAddCourse(b.dataset.name)));
+}
+
+// ═══ MODE MAGASIN — liste à plat, gros boutons, une action = cocher ═══
+function openStoreMode() {
+  document.getElementById('store-mode')?.remove();
+  const ov = document.createElement('div');
+  ov.id = 'store-mode';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:1500;background:var(--bg);display:flex;flex-direction:column;animation:fadeIn .25s';
+  ov.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;padding:calc(var(--safe-top) + 12px) 16px 12px;background:var(--card);border-bottom:1px solid var(--border)">
+      <div style="font-size:20px;font-weight:800;flex:1">🛒 Mes courses</div>
+      <div id="store-progress" style="font-size:14px;color:var(--text2);font-weight:600"></div>
+      <button onclick="document.getElementById('store-mode').remove();render()" style="background:var(--bg);border:none;border-radius:10px;width:40px;height:40px;font-size:18px;cursor:pointer">✕</button>
+    </div>
+    <div id="store-list" style="flex:1;overflow-y:auto;padding:8px 12px calc(var(--safe-bot) + 20px);-webkit-overflow-scrolling:touch"></div>`;
+  document.body.appendChild(ov);
+  renderStoreList();
+}
+function renderStoreList() {
+  const list = document.getElementById('store-list');
+  if (!list) return;
+  const prev = list.scrollTop;
+  const items = S.courses.items || [];
+  const unchecked = items.filter(i => !i.checked);
+  const checked = items.filter(i => i.checked);
+  const prog = document.getElementById('store-progress');
+  if (prog) prog.textContent = `${checked.length}/${items.length}`;
+
+  // Grouper les non-cochés par catégorie (ordre COURSE_CATS)
+  let html = '';
+  for (const catDef of COURSE_CATS) {
+    const catItems = unchecked.filter(i => (i.category||'autres') === catDef.id);
+    if (!catItems.length) continue;
+    html += `<div style="font-size:12px;font-weight:700;color:${catDef.color};text-transform:uppercase;letter-spacing:0.4px;margin:14px 4px 6px">${catDef.icon} ${escHtml(catDef.name)}</div>`;
+    for (const it of catItems) {
+      html += `<div class="store-row" data-id="${escHtml(it.id)}" style="display:flex;align-items:center;gap:14px;background:var(--card);border-radius:14px;padding:18px 16px;margin-bottom:8px;cursor:pointer;min-height:64px;box-shadow:var(--shadow)">
+        <div style="width:30px;height:30px;border-radius:50%;border:2.5px solid var(--text3);flex-shrink:0"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:18px;font-weight:700">${escHtml(it.name)}</div>
+          ${it.qty ? `<div style="font-size:14px;color:var(--text2);margin-top:2px">${escHtml(it.qty)}</div>` : ''}
+        </div>
+      </div>`;
+    }
+  }
+  if (!unchecked.length) {
+    html += `<div style="text-align:center;padding:60px 20px"><div style="font-size:56px">🎉</div><div style="font-size:18px;font-weight:700;margin-top:10px">Tout est dans le panier !</div></div>`;
+  }
+  // Cochés (repliés en bas)
+  if (checked.length) {
+    html += `<div style="font-size:12px;font-weight:700;color:var(--text3);text-transform:uppercase;margin:20px 4px 6px">✓ Dans le panier (${checked.length})</div>`;
+    for (const it of checked) {
+      html += `<div class="store-row" data-id="${escHtml(it.id)}" style="display:flex;align-items:center;gap:14px;padding:12px 16px;margin-bottom:4px;cursor:pointer;opacity:0.5;min-height:48px">
+        <div style="width:26px;height:26px;border-radius:50%;background:var(--green);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-size:15px">✓</div>
+        <div style="flex:1;font-size:16px;text-decoration:line-through">${escHtml(it.name)}</div>
+      </div>`;
+    }
+  }
+  list.innerHTML = html;
+  list.scrollTop = prev;
+  list.querySelectorAll('.store-row').forEach(row => {
+    row.addEventListener('click', async () => {
+      const it = (S.courses.items||[]).find(i => i.id === row.dataset.id);
+      if (!it) return;
+      it.checked = !it.checked;
+      haptic(25);
+      await saveData();
+      renderStoreList();
+    });
+  });
 }
 
 let _coursePressTimer = null;
@@ -5234,8 +5473,23 @@ async function addCourseItem(name, category, qty) {
     S.courses.suggestions.unshift(name.trim());
     if (S.courses.suggestions.length > 50) S.courses.suggestions.pop();
   }
+  // Compteur de fréquence → suggestions "favoris" intelligentes
+  if (!S.courses.freq) S.courses.freq = {};
+  const fkey = name.trim().toLowerCase();
+  S.courses.freq[fkey] = (S.courses.freq[fkey] || 0) + 1;
   await saveData();
   render();
+}
+// Suggestions triées par fréquence d'ajout (favoris en premier)
+function topCourseSuggestions(limit) {
+  const freq = S.courses.freq || {};
+  const fromHistory = S.courses.suggestions || [];
+  const seen = new Set();
+  const ranked = [...fromHistory].sort((a,b) => (freq[b.toLowerCase()]||0) - (freq[a.toLowerCase()]||0));
+  const out = [];
+  for (const s of ranked) { const k = s.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(s); } }
+  for (const s of DEFAULT_SUGGESTIONS) { const k = s.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(s); } }
+  return out.slice(0, limit || 12);
 }
 
 async function toggleCourseItem(id) {
@@ -5303,6 +5557,16 @@ function openAddCourseModal() {
       <span class="chip-icon">${c.icon}</span>
       <span>${c.name.split(' ')[0]}</span>
     </div>`).join('');
+  // Chips quantité rapides
+  document.querySelectorAll('#course-qty-chips .qty-chip').forEach(chip => {
+    chip.onclick = () => {
+      const inp = document.getElementById('course-qty-input');
+      inp.value = chip.dataset.qty;
+      document.querySelectorAll('#course-qty-chips .qty-chip').forEach(c => { c.style.background='var(--bg)'; c.style.color=''; c.style.borderColor='var(--border)'; });
+      chip.style.background = 'var(--kat)'; chip.style.color = 'white'; chip.style.borderColor = 'var(--kat)';
+      haptic(15);
+    };
+  });
   document.getElementById('course-modal').classList.add('open');
   setTimeout(() => document.getElementById('course-name-input').focus(), 200);
 }
