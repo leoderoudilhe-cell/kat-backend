@@ -550,6 +550,7 @@ app.post('/api/data', (req, res) => {
           text: (winner.text !== undefined && winner.text !== null) ? winner.text : (existing.text || ''),
           date: winner.date || existing.date || v.date,
           _ts: Math.max(lts, rts),
+          sections: (winner.sections && Object.keys(winner.sections).length) ? winner.sections : (existing.sections || v.sections || {}),
         };
         // Photos: prend le plus grand des deux (client OU serveur)
         const clientPhotos = Array.isArray(v.photos) ? v.photos : [];
@@ -827,7 +828,9 @@ function parisHour() {
 function journalFilled(dk) {
   const d = loadData();
   const e = d.journal && d.journal[dk];
-  return !!(e && (e.text || e.mood || (e.photos && e.photos.length)));
+  if (!e) return false;
+  const hasSection = e.sections && Object.values(e.sections).some(v => v && String(v).trim());
+  return !!(e.text || e.mood || (e.photos && e.photos.length) || hasSection);
 }
 let _journalRepeatTimer = null;
 function scheduleDailyJournalReminder() {

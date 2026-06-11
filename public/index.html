@@ -262,6 +262,13 @@ input, textarea { font-family: inherit; }
 
 /* ═══ JOURNAL ═══ */
 .mood-row { display: flex; justify-content: space-around; margin-bottom: 14px; }
+.mood-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 14px; }
+.mood-cell { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 2px; border-radius: 12px; background: var(--bg); border: 2px solid transparent; cursor: pointer; transition: all .15s; }
+.mood-cell .mood-emoji { font-size: 26px; line-height: 1; }
+.mood-cell .mood-label { font-size: 9px; color: var(--text2); font-weight: 600; text-align: center; }
+.mood-cell.active { border-color: var(--kat); background: color-mix(in srgb, var(--kat) 12%, var(--card)); transform: scale(1.04); }
+.mood-cell.active .mood-label { color: var(--kat2); }
+.journal-field-label { font-size: 12px; font-weight: 700; color: var(--text2); margin: 12px 0 6px; display: flex; align-items: center; gap: 6px; }
 .mood-btn { font-size: 28px; width: 48px; height: 48px; border-radius: 50%; display:flex;align-items:center;justify-content:center; transition: all .2s; background: transparent; }
 .mood-btn.active { background: var(--bg); transform: scale(1.2); box-shadow: var(--shadow); }
 .journal-textarea {
@@ -1084,7 +1091,9 @@ function mergeJournalEntry(local, remote) {
     text: (winner.text !== undefined ? winner.text : (local.text || remote.text || '')),
     date: winner.date || local.date || remote.date,
     _ts: Math.max(lts, rts),
-    photos: photos || []
+    photos: photos || [],
+    // Pavés guidés : le plus récent gagne, mais on ne perd jamais l'objet de l'autre s'il est vide
+    sections: (winner.sections && Object.keys(winner.sections).length) ? winner.sections : (local.sections || remote.sections || {})
   };
 }
 
@@ -1242,7 +1251,7 @@ async function pushToServer() {
     // Journal: text + mood seulement (photos stockées localement + compressées séparément si nouvelles)
     const journalClean = {};
     for (const [k, entry] of Object.entries(S.journal)) {
-      journalClean[k] = { mood: entry.mood, text: entry.text, date: entry.date, _ts: entry._ts };
+      journalClean[k] = { mood: entry.mood, text: entry.text, date: entry.date, _ts: entry._ts, sections: entry.sections };
       // Photos uniquement si présentes ET nouvelles (compressées agressivement)
       if (entry.photos && entry.photos.length) {
         try {
@@ -2470,10 +2479,23 @@ const JOURNAL_PROMPTS = [
   "Une petite victoire du jour ?",
   "Qu'est-ce qui t'a fait du bien aujourd'hui ?",
 ];
+// 12 humeurs avec un mot pour décrire l'émotion
+const MOODS = [
+  { e:'😍', l:'Rayonnante' }, { e:'😊', l:'Contente' }, { e:'😌', l:'Sereine' }, { e:'🥰', l:'Aimée' },
+  { e:'🤗', l:'Reconnaissante' }, { e:'😎', l:'Confiante' }, { e:'😐', l:'Neutre' }, { e:'😴', l:'Fatiguée' },
+  { e:'😟', l:'Inquiète' }, { e:'😢', l:'Triste' }, { e:'😰', l:'Stressée' }, { e:'😤', l:'Énervée' },
+];
+// Pavés d'écriture guidée (facultatifs, sauvegardés tout seuls)
+const JOURNAL_SECTIONS = [
+  { key:'best',     icon:'✨', label:'Le meilleur moment',          ph:'Ce qui a illuminé ta journée…' },
+  { key:'learned',  icon:'💡', label:"Un truc appris / découvert",   ph:"Une info, une idée, une prise de conscience…" },
+  { key:'grateful', icon:'🙏', label:'Je suis reconnaissante pour…', ph:'Une personne, un petit bonheur…' },
+  { key:'tomorrow', icon:'🎯', label:"Demain, j'aimerais…",          ph:'Une intention, une envie pour demain…' },
+];
 function renderJournal(container) {
   const entry = S.journal[S.date] || {};
-  const moods = ['🥰','😊','😐','😔','😤','😴'];
   const currentMood = entry.mood;
+  const sections = entry.sections || {};
   // Prompt d'écriture rotatif (stable dans la journée, change chaque jour)
   const dn = Math.floor((parseDate(S.date) - new Date(parseDate(S.date).getFullYear(),0,0)) / 86400000);
   const prompt = JOURNAL_PROMPTS[dn % JOURNAL_PROMPTS.length];
@@ -2494,14 +2516,23 @@ function renderJournal(container) {
   }
 
   html += '<div class="card"><div class="section">';
-  html += '<div class="section-title">Humeur du jour</div>';
-  html += '<div class="mood-row">';
-  for (const mood of moods) {
-    html += `<button class="mood-btn${mood===currentMood?' active':''}" data-mood="${mood}">${mood}</button>`;
+  html += '<div class="section-title">Comment te sens-tu aujourd\'hui ?</div>';
+  html += '<div class="mood-grid">';
+  for (const m of MOODS) {
+    html += `<div class="mood-cell${m.e===currentMood?' active':''}" data-mood="${m.e}">
+      <span class="mood-emoji">${m.e}</span><span class="mood-label">${escHtml(m.l)}</span>
+    </div>`;
   }
   html += '</div>';
+  // Pavé principal
+  html += `<div class="journal-field-label">📝 Ma journée en quelques mots</div>`;
   html += `<textarea class="journal-textarea" id="journal-text" placeholder="${escHtml(prompt)}" maxlength="2000">${escHtml(entry.text||'')}</textarea>`;
-  html += '<button class="btn-primary" id="journal-save-btn" style="margin-top:10px">Enregistrer 📔</button>';
+  // Pavés guidés supplémentaires
+  for (const s of JOURNAL_SECTIONS) {
+    html += `<div class="journal-field-label">${s.icon} ${escHtml(s.label)}</div>`;
+    html += `<textarea class="journal-textarea journal-section" data-key="${s.key}" placeholder="${escHtml(s.ph)}" maxlength="1000" style="min-height:70px">${escHtml(sections[s.key]||'')}</textarea>`;
+  }
+  html += '<button class="btn-primary" id="journal-save-btn" style="margin-top:12px">Enregistrer 📔</button>';
   // Boutons partage esthétique
   html += `<div style="display:flex;gap:8px;margin-top:10px">
     <button class="btn-ghost" id="share-day-btn" style="flex:1;padding:10px;border-radius:10px;background:var(--bg);font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px">📤 Partager ce jour</button>
@@ -2556,21 +2587,41 @@ function renderJournal(container) {
   // Variable locale pour mood sélectionné (pas encore sauvegardé)
   let _selectedMood = entry.mood || null;
 
-  // Mood buttons — sélection visuelle uniquement, sauvegarde via bouton Enregistrer
-  container.querySelectorAll('.mood-btn').forEach(btn => {
+  // Humeurs — sélection + auto-save immédiat (tap à nouveau = désélection)
+  container.querySelectorAll('.mood-cell').forEach(btn => {
     btn.addEventListener('click', async () => {
-      _selectedMood = btn.dataset.mood;
-      container.querySelectorAll('.mood-btn').forEach(b => b.classList.toggle('active', b.dataset.mood === _selectedMood));
-      // AUTO-SAVE: dès qu'elle clique sur un mood, on sauvegarde immédiatement
+      _selectedMood = (_selectedMood === btn.dataset.mood) ? null : btn.dataset.mood;
+      container.querySelectorAll('.mood-cell').forEach(b => b.classList.toggle('active', b.dataset.mood === _selectedMood));
+      haptic(12);
       if (!S.journal[S.date]) S.journal[S.date] = {};
-      S.journal[S.date].mood = _selectedMood;
+      S.journal[S.date].mood = _selectedMood || '';
       S.journal[S.date].date = S.date; S.journal[S.date]._ts = Date.now();
       await saveData();
-      if (isToday(S.date)) {
+      if (isToday(S.date) && _selectedMood) {
         localStorage.setItem('kat_journal_filled_' + S.date, '1');
         cancelDailyReminder();
       }
     });
+  });
+
+  // Pavés guidés — auto-save débouncé 1.5s + au blur
+  container.querySelectorAll('.journal-section').forEach(ta => {
+    const entryDate = S.date;
+    const key = ta.dataset.key;
+    let t = null;
+    const save = async () => {
+      if (!S.journal[entryDate]) S.journal[entryDate] = {};
+      if (!S.journal[entryDate].sections) S.journal[entryDate].sections = {};
+      S.journal[entryDate].sections[key] = ta.value;
+      S.journal[entryDate].date = entryDate; S.journal[entryDate]._ts = Date.now();
+      await saveData();
+      if (isToday(entryDate) && ta.value.trim()) {
+        localStorage.setItem('kat_journal_filled_' + entryDate, '1');
+        cancelDailyReminder();
+      }
+    };
+    ta.addEventListener('input', () => { clearTimeout(t); t = setTimeout(save, 1500); });
+    ta.addEventListener('blur', () => { clearTimeout(t); save(); });
   });
 
   // Auto-save TEXTE après 1.5s d'inactivité (sécurité si elle ne tap pas "Enregistrer")
@@ -2614,6 +2665,10 @@ function renderJournal(container) {
     if (!S.journal[S.date]) S.journal[S.date] = {};
     if (_selectedMood) S.journal[S.date].mood = _selectedMood;
     S.journal[S.date].text = text;
+    // Récupère les pavés guidés
+    const secs = S.journal[S.date].sections || {};
+    container.querySelectorAll('.journal-section').forEach(ta => { secs[ta.dataset.key] = ta.value; });
+    S.journal[S.date].sections = secs;
     S.journal[S.date].date = S.date; S.journal[S.date]._ts = Date.now();
     // Mark today filled for reminder
     if (isToday(S.date)) {
@@ -5010,6 +5065,13 @@ function exportJournalPdf() {
     body += `<div class="entry"><h2>${escHtml(dateStr)}</h2>`;
     if (entry.mood) body += `<div class="mood">${escHtml(entry.mood)}</div>`;
     if (entry.text) body += `<p>${escHtml(entry.text)}</p>`;
+    // Pavés guidés
+    if (entry.sections) {
+      for (const s of JOURNAL_SECTIONS) {
+        const v = entry.sections[s.key];
+        if (v && v.trim()) body += `<p style="margin-top:8px"><b style="color:#DB2777">${s.icon} ${escHtml(s.label)}</b><br>${escHtml(v)}</p>`;
+      }
+    }
     const photos = entry.photos || [];
     if (photos.length) {
       body += '<div class="photos">';
