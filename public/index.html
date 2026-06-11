@@ -52,6 +52,19 @@
   --toast-text: #FFFFFF;
   --undo-bg: rgba(58,58,60,0.98);
 }
+/* Thème rosé pâle (façon iPhone 16 rose) */
+[data-theme="rose"] {
+  --bg: #FBE9F0;
+  --card: #FFFFFF;
+  --text: #4A2A38;
+  --text2: #A0728A;
+  --text3: #CBA6BA;
+  --border: rgba(219,39,119,0.10);
+  --shadow: 0 2px 14px rgba(219,39,119,0.10);
+  --toast-bg: rgba(74,42,56,0.96);
+  --toast-text: #FFFFFF;
+  --undo-bg: rgba(74,42,56,0.97);
+}
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; font-size: 15px; overflow: hidden; }
 button { cursor: pointer; border: none; background: none; font-family: inherit; }
@@ -519,6 +532,7 @@ input, textarea { font-family: inherit; }
     <div id="header-right">
       <button id="btn-search" title="Rechercher" aria-label="Rechercher">🔍</button>
       <button id="btn-briefing" title="Briefing" aria-label="Briefing matinal">☀️</button>
+      <button id="btn-bug" title="Signaler un souci" aria-label="Signaler un souci">🐛</button>
       <button id="btn-settings" title="Paramètres" aria-label="Paramètres">⚙️</button>
     </div>
   </div>
@@ -796,12 +810,11 @@ input, textarea { font-family: inherit; }
     </div>
   </div>
   <div class="settings-section">
-    <div class="section-title">Affichage</div>
-    <div style="background:var(--card);border-radius:var(--radius-sm);overflow:hidden">
-      <div class="settings-row">
-        <span class="settings-row-label">Mode sombre</span>
-        <div class="toggle" id="dark-toggle" onclick="toggleDark()"></div>
-      </div>
+    <div class="section-title">Thème</div>
+    <div style="display:flex;gap:8px" id="theme-chips">
+      <button class="theme-chip" data-theme="light" style="flex:1;border:2px solid var(--border);background:var(--card);border-radius:12px;padding:14px 0;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;color:var(--text)">☀️<br>Clair</button>
+      <button class="theme-chip" data-theme="rose" style="flex:1;border:2px solid var(--border);background:var(--card);border-radius:12px;padding:14px 0;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;color:var(--text)">🌸<br>Rosé</button>
+      <button class="theme-chip" data-theme="dark" style="flex:1;border:2px solid var(--border);background:var(--card);border-radius:12px;padding:14px 0;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;color:var(--text)">🌙<br>Sombre</button>
     </div>
   </div>
   <div class="settings-section">
@@ -1168,10 +1181,9 @@ async function syncFromServer() {
     if (data.ptodos  && data.ptodos.length > 0) S.ptodos = data.ptodos;
     if (data.settings) {
       S.settings = { ...S.settings, ...data.settings };
-      // Apply dark mode if changed
-      if (S.settings.dark !== undefined) {
-        document.documentElement.dataset.dark = S.settings.dark ? '1' : '0';
-      }
+      // Applique le thème reçu (clair/rosé/sombre)
+      applyTheme(currentTheme());
+      updateThemeChips();
       await idbSet('kv', 'settings', S.settings);
     }
     // Journal: merge (remote text wins, photos: local wins if present)
@@ -1239,7 +1251,7 @@ async function pushToServer() {
         } catch(e) {}
       }
     }
-    const settingsClean = { dark: S.settings.dark, soundName: S.settings.soundName, name: S.settings.name };
+    const settingsClean = { dark: S.settings.dark, theme: S.settings.theme, soundName: S.settings.soundName, name: S.settings.name };
     const payload = {
       events: S.events, todos: S.todos, journal: journalClean,
       cats: S.cats, courses: S.courses, ptodos: S.ptodos,
@@ -3286,8 +3298,12 @@ function openSettings() {
     });
   }
   if (nameInput) nameInput.value = S.settings.name || '';
-  const dark = document.documentElement.dataset.dark === '1';
-  document.getElementById('dark-toggle').classList.toggle('on', dark);
+  // Thème : surligne le bon chip + câble une seule fois
+  updateThemeChips();
+  document.querySelectorAll('#theme-chips .theme-chip').forEach(c => {
+    if (c._wired) return; c._wired = true;
+    c.addEventListener('click', () => setTheme(c.dataset.theme));
+  });
   const webcalUrl = 'webcal://kat-app.onrender.com/ical';
   document.getElementById('webcal-label').textContent = webcalUrl;
   // Update notification button state
@@ -3483,12 +3499,33 @@ async function requestNotifPermission() {
 }
 function closeSettings() { document.getElementById('settings-panel').classList.remove('open'); }
 
-function toggleDark() {
-  const isDark = document.documentElement.dataset.dark === '1';
-  document.documentElement.dataset.dark = isDark ? '0' : '1';
-  document.getElementById('dark-toggle').classList.toggle('on', !isDark);
-  S.settings.dark = !isDark;
-  saveData();
+// ═══ THÈMES (clair / rosé / sombre) ═══
+function currentTheme() {
+  return S.settings.theme || (S.settings.dark ? 'dark' : 'light');
+}
+function applyTheme(t) {
+  const root = document.documentElement;
+  root.dataset.dark = (t === 'dark') ? '1' : '0';
+  if (t === 'rose') root.dataset.theme = 'rose'; else root.removeAttribute('data-theme');
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = t === 'dark' ? '#000000' : t === 'rose' ? '#FBE9F0' : '#F472B6';
+}
+function updateThemeChips() {
+  const t = currentTheme();
+  document.querySelectorAll('#theme-chips .theme-chip').forEach(c => {
+    const on = c.dataset.theme === t;
+    c.style.borderColor = on ? 'var(--kat)' : 'var(--border)';
+    c.style.background = on ? 'color-mix(in srgb, var(--kat) 14%, var(--card))' : 'var(--card)';
+    c.style.color = on ? 'var(--kat2)' : 'var(--text)';
+  });
+}
+async function setTheme(t) {
+  S.settings.theme = t;
+  S.settings.dark = (t === 'dark'); // compat ascendante
+  applyTheme(t);
+  updateThemeChips();
+  haptic(15);
+  await saveData();
 }
 
 function renderCatsSettings() {
@@ -3850,6 +3887,63 @@ function doSearch(query) {
       closeSearch(); render();
     });
   });
+}
+
+// ═══ SIGNALER UN BUG ═══
+document.getElementById('btn-bug').addEventListener('click', openBugModal);
+function openBugModal() {
+  document.getElementById('bug-modal')?.remove();
+  const m = document.createElement('div');
+  m.id = 'bug-modal';
+  m.className = 'modal-overlay open';
+  m.innerHTML = `
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-title">🐛 Un souci ? Dis-moi tout</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Décris ce qui ne va pas ou ce qui te gêne. Léo verra ta liste et corrigera 💛</div>
+      <textarea id="bug-text" class="journal-textarea" placeholder="Ex : quand je coche une course, la liste saute…" maxlength="800" style="min-height:120px"></textarea>
+      <button class="btn-primary" id="bug-send" style="margin-top:12px">Envoyer 🐱</button>
+      <button class="btn-ghost" onclick="document.getElementById('bug-modal').remove()" style="display:block;margin:12px auto 0">Annuler</button>
+    </div>`;
+  document.body.appendChild(m);
+  setTimeout(() => document.getElementById('bug-text').focus(), 300);
+  m.addEventListener('click', e => { if (e.target === m) m.remove(); });
+  document.getElementById('bug-send').addEventListener('click', async () => {
+    const text = document.getElementById('bug-text').value.trim();
+    if (!text) { toast('⚠️ Écris quelques mots'); return; }
+    const btn = document.getElementById('bug-send');
+    btn.disabled = true; btn.textContent = 'Envoi…';
+    try {
+      await fetch('/api/bug-report', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, context: { tab: S.tab, date: S.date, ua: navigator.userAgent.slice(0,120) } }),
+        signal: AbortSignal.timeout(15000)
+      });
+      m.remove();
+      haptic([40,30,40]);
+      toast('💛 Merci ! C\'est noté, Léo va voir ça');
+    } catch(e) {
+      // Fallback hors-ligne : on garde en local et on réessaie au prochain lancement
+      const pending = JSON.parse(localStorage.getItem('kat_pending_bugs') || '[]');
+      pending.push({ text, context: { tab: S.tab, date: S.date }, ts: Date.now() });
+      localStorage.setItem('kat_pending_bugs', JSON.stringify(pending));
+      m.remove();
+      toast('📡 Pas de réseau — envoyé dès que possible');
+    }
+  });
+}
+// Renvoi des signalements gardés hors-ligne
+async function flushPendingBugs() {
+  let pending = [];
+  try { pending = JSON.parse(localStorage.getItem('kat_pending_bugs') || '[]'); } catch(e) {}
+  if (!pending.length) return;
+  const remaining = [];
+  for (const b of pending) {
+    try {
+      await fetch('/api/bug-report', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(b), signal: AbortSignal.timeout(10000) });
+    } catch(e) { remaining.push(b); }
+  }
+  localStorage.setItem('kat_pending_bugs', JSON.stringify(remaining));
 }
 
 // ═══ MORNING BRIEFING ═══
@@ -4935,15 +5029,13 @@ function exportJournalPdf() {
 
 // ═══ DARK MODE INIT ═══
 function initDark() {
-  const savedDark = S.settings.dark;
-  if (savedDark === true) {
-    document.documentElement.dataset.dark = '1';
-  } else if (savedDark === undefined) {
-    // Follow system
-    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      document.documentElement.dataset.dark = '1';
-    }
+  // Thème explicite si défini, sinon dérive de l'ancien réglage 'dark', sinon système
+  if (S.settings.theme) { applyTheme(S.settings.theme); return; }
+  if (S.settings.dark === true) { applyTheme('dark'); return; }
+  if (S.settings.dark === undefined && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    applyTheme('dark'); return;
   }
+  applyTheme('light');
 }
 
 // ═══ AUTO-BRIEFING ═══
@@ -5086,6 +5178,7 @@ async function boot() {
   render();
   maybeOnboard();
   startServerKeepalive();
+  flushPendingBugs();
   // Register Service Worker for Web Push notifications
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js')

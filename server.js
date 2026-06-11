@@ -1025,6 +1025,81 @@ app.get('/api/news', async (_, res) => {
   res.json({ items: _newsCache.items, cached: false });
 });
 
+// ═══ REMONTÉE DE BUGS (Camille signale → Léo révise) ═══
+const BUGS_FILE = path.join(DATA_DIR, 'bugs.json');
+const GH_BUGS_PATH = 'data/bugs.json';
+let _bugs = [];
+let _bugsSha = null;
+function loadBugs() {
+  try { if (fs.existsSync(BUGS_FILE)) _bugs = JSON.parse(fs.readFileSync(BUGS_FILE, 'utf8')); } catch(e) { _bugs = []; }
+}
+let _bugsPersistTimer = null;
+function saveBugs() {
+  try { fs.writeFileSync(BUGS_FILE, JSON.stringify(_bugs, null, 2)); } catch(e) {}
+  // Persiste sur GitHub (survit aux redémarrages Render)
+  clearTimeout(_bugsPersistTimer);
+  _bugsPersistTimer = setTimeout(async () => {
+    if (!GH_TOKEN) return;
+    try {
+      if (!_bugsSha) { const r = await ghGet(GH_BUGS_PATH); if (r && r.s === 200) _bugsSha = r.b.sha; }
+      const res = await ghPutJSON(GH_BUGS_PATH, _bugs, _bugsSha);
+      if (res && (res.s === 200 || res.s === 201)) _bugsSha = res.b.content?.sha || _bugsSha;
+      else if (res && (res.s === 409 || res.s === 422)) _bugsSha = null;
+    } catch(e) {}
+  }, 1500);
+}
+async function loadBugsFromGitHub() {
+  if (!GH_TOKEN) return;
+  try {
+    const r = await ghGet(GH_BUGS_PATH);
+    if (r && r.s === 200 && r.b.content) {
+      _bugs = JSON.parse(Buffer.from(r.b.content, 'base64').toString('utf8'));
+      _bugsSha = r.b.sha;
+      console.log(`🐛 Loaded ${_bugs.length} bug report(s) from GitHub`);
+    }
+  } catch(e) {}
+}
+
+// Camille envoie un signalement
+app.post('/api/bug-report', (req, res) => {
+  const { text, context } = req.body || {};
+  if (!text || !String(text).trim()) return res.status(400).json({ error: 'empty' });
+  _bugs.unshift({
+    id: Date.now().toString(36),
+    text: String(text).slice(0, 1000),
+    context: context || {},
+    ts: Date.now(),
+    resolved: false,
+  });
+  if (_bugs.length > 500) _bugs = _bugs.slice(0, 500);
+  saveBugs();
+  console.log('🐛 Bug signalé:', String(text).slice(0, 80));
+  res.json({ ok: true });
+});
+
+// Léo révise la liste — page HTML lisible (ouvrir kat-app.onrender.com/api/bugs)
+app.get('/api/bugs', (req, res) => {
+  if (req.query.format === 'json') return res.json({ bugs: _bugs });
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const open = _bugs.filter(b => !b.resolved);
+  const rows = _bugs.map(b => {
+    const d = new Date(b.ts);
+    const when = d.toLocaleString('fr-FR', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+    const ctx = b.context || {};
+    return `<div style="background:#fff;border-radius:14px;padding:14px 16px;margin-bottom:10px;box-shadow:0 2px 10px rgba(0,0,0,0.06);${b.resolved?'opacity:0.5':''}">
+      <div style="font-size:15px;line-height:1.5;color:#1c1c1e;white-space:pre-wrap">${esc(b.text)}</div>
+      <div style="font-size:12px;color:#9b7280;margin-top:8px">📅 ${esc(when)}${ctx.tab?` · onglet <b>${esc(ctx.tab)}</b>`:''}${ctx.date?` · ${esc(ctx.date)}`:''}</div>
+    </div>`;
+  }).join('') || '<p style="color:#9b7280">Aucun signalement pour le moment 🎉</p>';
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Bugs KAT</title></head>
+  <body style="font-family:-apple-system,sans-serif;background:#FCEEF3;margin:0;padding:20px;max-width:680px;margin:auto">
+    <h1 style="color:#DB2777;font-size:24px">🐛 Bugs signalés par Camille</h1>
+    <p style="color:#9b7280;font-size:14px">${open.length} en attente · ${_bugs.length} au total</p>
+    ${rows}
+  </body></html>`);
+});
+
 // Test push — send immediate notification to all devices
 app.post('/api/push-test', async (req, res) => {
   if (!_pushSubs.length) return res.status(404).json({ error: 'No subscriptions', count: 0 });
@@ -1081,6 +1156,8 @@ const server = app.listen(PORT, async () => {
   }
   loadPushSubs(); // fichier local (peut être vide après restart)
   await loadSubsFromGitHub(); // GitHub = source persistante des souscriptions
+  loadBugs();
+  await loadBugsFromGitHub(); // signalements de bugs persistés
   // Cron rappels toutes les 60s
   setInterval(checkEventReminders, 60 * 1000);
   console.log('⏰ Reminder cron started (every 60s)');
