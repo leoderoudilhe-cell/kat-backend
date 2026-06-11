@@ -970,7 +970,7 @@ function scheduleEventReminders(events) {
 // Garde Render éveillé 24/7 ET déclenche le check des rappels même si l'app n'est jamais ouverte.
 app.get('/api/cron', (_, res) => {
   try { checkEventReminders(); } catch(e) { console.warn('cron check err:', e.message); }
-  res.json({ ok: true, ts: Date.now(), subs: _pushSubs.length });
+  res.json({ ok: true, ts: Date.now(), subs: _pushSubs.length, up: Math.round(process.uptime()) });
 });
 app.head('/api/cron', (_, res) => res.status(200).end());
 
@@ -1036,6 +1036,19 @@ const server = app.listen(PORT, async () => {
   scheduleDailyJournalReminder();
   // Re-persister les marqueurs "déjà envoyé" sur GitHub périodiquement (anti-doublon après restart)
   setInterval(() => { if (_pushSubs.length) persistSubsToGitHub(); }, 10 * 60 * 1000);
+
+  // ═══ SELF-KEEPALIVE 24/7 ═══
+  // Render free s'endort après 15 min sans requête ENTRANTE → le cron des rappels
+  // ne tourne plus → notifs ratées. Le cron GitHub Actions est throttlé (runs espacés
+  // de plusieurs heures). Solution: le serveur se ping lui-même via son URL PUBLIQUE
+  // (passe par le load balancer Render = trafic entrant) toutes les 4 min.
+  const SELF_URL = process.env.RENDER_EXTERNAL_URL || (process.env.RENDER ? 'https://kat-app.onrender.com' : null);
+  if (SELF_URL) {
+    setInterval(() => {
+      try { https.get(SELF_URL + '/api/ping', r => r.resume()).on('error', () => {}); } catch(e) {}
+    }, 4 * 60 * 1000);
+    console.log('🫀 Self-keepalive actif →', SELF_URL);
+  }
 });
 
 // ═══════════════════════════════════════════════
