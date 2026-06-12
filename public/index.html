@@ -541,7 +541,10 @@ input, textarea { font-family: inherit; }
 #pl-count { font-size: 14px; font-weight: 800; }
 #pl-sort { border: none; background: var(--bg); border-radius: 10px; padding: 6px 8px; font-size: 12px; font-weight: 600; color: var(--text2); outline: none; }
 #pl-list { flex: 1; overflow-y: auto; padding: 2px 14px 14px; -webkit-overflow-scrolling: touch; }
-.pl-row { display: flex; gap: 11px; padding: 10px 2px; border-bottom: 1px solid var(--border); align-items: center; }
+.pl-row { position: relative; display: flex; gap: 11px; padding: 10px 2px; border-bottom: 1px solid var(--border); align-items: center; overflow: hidden; }
+.pl-lp-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: color-mix(in srgb, var(--kat) 22%, transparent); border-radius: 8px; pointer-events: none; z-index: 0; display: flex; align-items: center; padding-left: 12px; }
+.pl-lp-bar span { font-size: 11px; font-weight: 800; color: var(--kat2); white-space: nowrap; }
+.pl-row > * { position: relative; z-index: 1; }
 .pl-thumb { width: 52px; height: 52px; border-radius: 13px; display: flex; align-items: center; justify-content: center; font-size: 23px; flex-shrink: 0; background-size: cover; background-position: center; }
 .pl-main { flex: 1; min-width: 0; }
 .pl-name { font-size: 15px; font-weight: 700; }
@@ -1667,6 +1670,7 @@ function render() {
     document.getElementById('date-nav').style.display = 'none';
     renderPlaces(content);
   }
+  if (S.tab !== 'places') plStopWatch(); // pause géoloc hors onglet Lieux (batterie)
   // Slide animation (feature 3)
   if (_lastSlideDir !== 0) {
     content.style.willChange = 'transform, opacity'; // GPU acceleration hint
@@ -5987,7 +5991,14 @@ function ensureLeaflet() {
 const CAT_HEAD_SVG = `<svg viewBox="0 0 100 100"><polygon points="20,40 15,12 40,32" fill="#F9A8D4"/><polygon points="80,40 85,12 60,32" fill="#F9A8D4"/><circle cx="50" cy="58" r="32" fill="#F472B6"/><ellipse cx="38" cy="52" rx="5" ry="6.5" fill="#fff"/><ellipse cx="62" cy="52" rx="5" ry="6.5" fill="#fff"/><ellipse cx="50" cy="64" rx="3" ry="2.2" fill="#fff"/></svg>`;
 
 let _plWrap = null, _plMap = null, _plMarkers = {}, _plActiveCat = 'all', _plQuery = '';
-let _plMeMarker = null, _plGeoWatch = null, _plAdding = false, _plTemp = null;
+let _plMeMarker = null, _plGeoWatch = null, _plAdding = false, _plTemp = null, _plGeoOn = false;
+function plStartWatch() {
+  if (_plGeoWatch || !navigator.geolocation) return;
+  _plGeoWatch = navigator.geolocation.watchPosition(plUpdateMe, () => {}, { enableHighAccuracy: true, maximumAge: 10000 });
+}
+function plStopWatch() {
+  if (_plGeoWatch) { navigator.geolocation.clearWatch(_plGeoWatch); _plGeoWatch = null; }
+}
 
 function renderPlaces(container) {
   if (!_plWrap) { _plWrap = document.createElement('div'); _plWrap.id = 'places-wrap'; buildPlacesShell(); }
@@ -5996,6 +6007,7 @@ function renderPlaces(container) {
   ensureLeaflet().then(() => {
     initPlacesMap();
     plRenderAll();
+    if (_plGeoOn) plStartWatch(); // reprend le suivi si elle l'avait activé
     [60, 250, 600].forEach(t => setTimeout(() => { if (_plMap) _plMap.invalidateSize(); }, t));
   }).catch(() => {
     // Hors-ligne / CDN bloqué : on montre au moins le listing
@@ -6114,14 +6126,118 @@ function plRenderList() {
         ${p.note?`<div class="pl-rownote">« ${escHtml(p.note)} »</div>`:''}
       </div><div style="color:var(--text3);font-size:17px">›</div></div>`;
   }).join('');
-  list.querySelectorAll('.pl-row').forEach(row => row.onclick = () => {
-    const p = S.places.find(x => x.id === row.dataset.id); if (!p) return;
-    _plWrap.querySelector('#pl-sheet').classList.remove('up');
-    if (_plMap) _plMap.flyTo([p.lat, p.lng], 16, { duration: 0.6 });
-    setTimeout(() => plOpenDetail(p.id), 600);
+  list.querySelectorAll('.pl-row').forEach(row => {
+    attachPlaceLongPress(row, row.dataset.id);
+    row.onclick = () => {
+      if (row._suppress) { row._suppress = false; return; } // appui long déjà géré
+      const p = S.places.find(x => x.id === row.dataset.id); if (!p) return;
+      _plWrap.querySelector('#pl-sheet').classList.remove('up');
+      if (_plMap) _plMap.flyTo([p.lat, p.lng], 16, { duration: 0.6 });
+      setTimeout(() => plOpenDetail(p.id), 600);
+    };
   });
 }
 function plRenderAll() { plRenderChips(); plRenderList(); plDrawMarkers(); }
+
+// ── Planifier une visite : créer un événement agenda depuis un lieu ──
+function plEventCatId(placeCatId) {
+  const cats = getCats();
+  const want = { resto:'social', cafe:'social', bar:'social', plage:'leisure', chill:'leisure',
+    shopping:'perso', beaute:'health', sport:'sport', balade:'leisure', work:'work', culture:'leisure', autre:'perso' }[placeCatId] || 'perso';
+  return (cats.find(c => c.id === want) || cats.find(c => (c.id||'').includes(want)) || cats.find(c => (c.name||'').toLowerCase().includes('loisir')) || cats[0]).id;
+}
+function plAddToAgenda(id) {
+  const p = S.places.find(x => x.id === id); if (!p) return;
+  document.getElementById('pl-plan-modal')?.remove();
+  const now = new Date();
+  const defDate = dateKey(now);
+  const defH = Math.min(22, now.getHours() + 1);
+  const defTime = `${String(defH).padStart(2,'0')}:00`;
+  const m = document.createElement('div');
+  m.id = 'pl-plan-modal';
+  m.className = 'modal-overlay open';
+  m.innerHTML = `
+    <div class="modal-sheet" style="max-width:460px">
+      <div class="modal-handle"></div>
+      <div class="modal-title">📅 Planifier une visite</div>
+      <div style="font-size:14px;color:var(--text2);margin-bottom:14px">${escHtml(p.name)}${p.area?` · ${escHtml(p.area)}`:''}</div>
+      <label class="form-label" for="pl-plan-date">Quel jour ?</label>
+      <input class="form-input" id="pl-plan-date" type="date" value="${defDate}">
+      <label class="form-label" style="margin-top:12px" for="pl-plan-time">À quelle heure ?</label>
+      <input class="form-input" id="pl-plan-time" type="time" value="${defTime}">
+      <label class="form-label" style="margin-top:12px">Durée</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px" id="pl-plan-dur">
+        <button type="button" class="pl-dur" data-min="60" style="padding:7px 13px;border-radius:18px;background:var(--bg);border:1.5px solid transparent;font-size:13px;font-weight:600;font-family:inherit">1h</button>
+        <button type="button" class="pl-dur" data-min="90" style="padding:7px 13px;border-radius:18px;background:var(--kat);color:#fff;border:1.5px solid var(--kat);font-size:13px;font-weight:600;font-family:inherit">1h30</button>
+        <button type="button" class="pl-dur" data-min="120" style="padding:7px 13px;border-radius:18px;background:var(--bg);border:1.5px solid transparent;font-size:13px;font-weight:600;font-family:inherit">2h</button>
+        <button type="button" class="pl-dur" data-min="180" style="padding:7px 13px;border-radius:18px;background:var(--bg);border:1.5px solid transparent;font-size:13px;font-weight:600;font-family:inherit">3h</button>
+      </div>
+      <label class="form-label" style="margin-top:12px">Me le rappeler</label>
+      <div class="reminder-chips" id="pl-plan-rem">
+        <button class="reminder-chip on" data-min="60">1h avant</button>
+        <button class="reminder-chip" data-min="1440">1 jour avant</button>
+        <button class="reminder-chip" data-min="0">À l'heure</button>
+      </div>
+      <button class="btn-primary" id="pl-plan-save" style="margin-top:16px">Ajouter à mon agenda 📅</button>
+      <button class="btn-ghost" id="pl-plan-cancel" style="display:block;margin:12px auto 0">Annuler</button>
+    </div>`;
+  document.body.appendChild(m);
+  let durMin = 90;
+  m.querySelectorAll('.pl-dur').forEach(b => b.onclick = () => {
+    durMin = +b.dataset.min;
+    m.querySelectorAll('.pl-dur').forEach(x => { x.style.background='var(--bg)'; x.style.color=''; x.style.borderColor='transparent'; });
+    b.style.background='var(--kat)'; b.style.color='#fff'; b.style.borderColor='var(--kat)';
+  });
+  m.querySelectorAll('#pl-plan-rem .reminder-chip').forEach(c => c.onclick = () => c.classList.toggle('on'));
+  const close = () => m.remove();
+  m.querySelector('#pl-plan-cancel').onclick = close;
+  m.addEventListener('click', e => { if (e.target === m) close(); });
+  m.querySelector('#pl-plan-save').onclick = async () => {
+    const dk = m.querySelector('#pl-plan-date').value || defDate;
+    const time = m.querySelector('#pl-plan-time').value || defTime;
+    const reminders = [...m.querySelectorAll('#pl-plan-rem .reminder-chip.on')].map(c => parseInt(c.dataset.min));
+    const ev = {
+      id: uid(), title: p.name, time, duration: durMin,
+      catId: plEventCatId(p.category),
+      location: p.address || '', notes: p.note || '',
+      recurrence: 'none', reminders, color: null, doneInstances: {}, placeId: p.id,
+    };
+    ensureEvents(dk);
+    S.events[dk].push(ev);
+    haptic([50,30,50]);
+    close();
+    plCloseDetail();
+    await saveData();
+    const d = parseDate(dk).toLocaleDateString('fr-FR', { weekday:'long', day:'numeric', month:'long' });
+    toast(`📅 « ${p.name} » ajouté le ${d} à ${time}`);
+    if (typeof launchConfetti === 'function') launchConfetti();
+  };
+}
+
+// ── Appui long 2s sur une ligne → planifier la visite ──
+function attachPlaceLongPress(row, id) {
+  let timer = null, bar = null, done = false;
+  const cleanup = () => { if (bar) { bar.remove(); bar = null; } };
+  const begin = () => {
+    done = false;
+    bar = document.createElement('div');
+    bar.className = 'pl-lp-bar';
+    bar.innerHTML = '<span>📅 Planifier la visite…</span>';
+    row.appendChild(bar);
+    requestAnimationFrame(() => { if (bar) { bar.style.transition = 'width 2s linear'; bar.style.width = '100%'; } });
+    haptic(12);
+    timer = setTimeout(() => { done = true; haptic([40,30,70]); cleanup(); row._suppress = true; plAddToAgenda(id); }, 2000);
+  };
+  const cancel = () => { clearTimeout(timer); timer = null; cleanup(); };
+  row.addEventListener('touchstart', begin, { passive: true });
+  row.addEventListener('touchmove', cancel, { passive: true });
+  row.addEventListener('touchend', cancel, { passive: true });
+  row.addEventListener('touchcancel', cancel, { passive: true });
+  // Souris (desktop / test)
+  row.addEventListener('mousedown', begin);
+  row.addEventListener('mouseup', cancel);
+  row.addEventListener('mouseleave', cancel);
+}
 
 // ── Géolocalisation live (tête de chat) ──
 function plLocate() {
@@ -6134,11 +6250,11 @@ function plLocate() {
   btn.textContent = '⏳';
   navigator.geolocation.getCurrentPosition(pos => {
     btn.textContent = '🐱'; btn.classList.add('on');
+    _plGeoOn = true;
     plUpdateMe(pos);
     _plMap.flyTo([pos.coords.latitude, pos.coords.longitude], 16, { duration: 0.8 });
     haptic([30,20,30]);
-    // suivi live
-    _plGeoWatch = navigator.geolocation.watchPosition(plUpdateMe, () => {}, { enableHighAccuracy: true, maximumAge: 10000 });
+    plStartWatch(); // suivi live
   }, err => {
     btn.textContent = '🐱';
     toast(err.code === 1 ? '📍 Autorise la localisation dans Réglages' : '📍 Position introuvable');
@@ -6195,14 +6311,16 @@ function plOpenDetail(id) {
     h += `<div class="avg-box" style="margin-top:14px"><div style="font-size:24px">💭</div><div><div class="avg-word">Pas encore notée</div><div class="avg-sub">« Modifier » pour donner ton ressenti</div></div></div>`;
   }
   if (p.note) h += `<label class="form-label" style="margin-top:12px">Ma note</label><div class="pl-dnote">${escHtml(p.note)}</div>`;
-  h += `<div style="display:flex;gap:8px;margin-top:16px">
+  h += `<button class="btn-primary" id="pl-d-plan" style="margin-top:16px">📅 Planifier une visite</button>`;
+  h += `<div style="display:flex;gap:8px;margin-top:10px">
     <button class="btn-ghost" id="pl-d-route" style="flex:1;background:var(--bg);border-radius:12px;padding:12px;font-weight:700">🧭 Itinéraire</button>
-    <button class="btn-ghost" id="pl-d-edit" style="flex:1;background:linear-gradient(135deg,var(--kat),var(--kat2));color:#fff;border-radius:12px;padding:12px;font-weight:700">✏️ Modifier</button>
+    <button class="btn-ghost" id="pl-d-edit" style="flex:1;background:var(--bg);border-radius:12px;padding:12px;font-weight:700">✏️ Modifier</button>
     <button class="btn-danger" id="pl-d-del" style="background:#FEF2F2;border-radius:12px;padding:12px 16px">🗑</button></div>`;
   const m = document.getElementById('pl-detail');
   m.innerHTML = h; m.scrollTop = 0;
   document.getElementById('pl-detail-ov').classList.add('open');
   m.querySelectorAll('#pl-hero img').forEach(img => img.onclick = () => openLightbox(p.photos, +img.dataset.i));
+  document.getElementById('pl-d-plan').onclick = () => plAddToAgenda(id);
   document.getElementById('pl-d-route').onclick = () => openInMaps(`${p.lat},${p.lng}`);
   document.getElementById('pl-d-edit').onclick = () => { plCloseDetail(); plOpenForm(id); };
   document.getElementById('pl-d-del').onclick = async () => {
