@@ -225,6 +225,9 @@ async function persistDataToGitHub(data) {
     if (clean.journal) {
       clean.journal = Object.fromEntries(Object.entries(clean.journal).map(([k,v])=>[k,{...v,photos:undefined}]));
     }
+    if (Array.isArray(clean.places)) {
+      clean.places = clean.places.map(p => ({ ...p, photos: undefined }));
+    }
     delete clean._pushSubs;
     const body = JSON.stringify({ message: 'KAT data', content: Buffer.from(JSON.stringify(clean)).toString('base64'), ..._dataSha ? {sha: _dataSha} : {} });
     const result = await new Promise((resolve, reject) => {
@@ -476,6 +479,7 @@ app.get('/api/stats', (_, res) => {
     courses: courseCount,
     ptodos: ptodoCount,
     journal: journalCount,
+    places: (d.places||[]).length,
     cats: (d.cats||[]).length,
     subs: _pushSubs.length,
     lastUpdate: d._updatedAt || 0
@@ -532,6 +536,29 @@ app.post('/api/data', (req, res) => {
     }
     if (b.ptodos !== undefined) {
       if (b.ptodos.length > 0 || !d.ptodos || d.ptodos.length === 0) d.ptodos = b.ptodos;
+    }
+    if (b.places !== undefined && Array.isArray(b.places)) {
+      // Merge par id (updatedAt gagne), préserve les photos si l'incoming les a retirées
+      const byId = {}; (d.places || []).forEach(p => byId[p.id] = p);
+      const incomingIds = new Set(b.places.map(p => p.id));
+      const merged = [];
+      for (const ip of b.places) {
+        const ex = byId[ip.id];
+        if (!ex) { merged.push(ip); continue; }
+        const winner = (ip.updatedAt||0) >= (ex.updatedAt||0) ? ip : ex;
+        const m = { ...winner };
+        const iph = ip.photos||[], eph = ex.photos||[];
+        m.photos = (winner.photos && winner.photos.length) ? winner.photos : (iph.length ? iph : eph);
+        merged.push(m);
+      }
+      // lieux serveur absents de l'incoming : suppression propagée si l'incoming est plus récent
+      const clientTs = b._clientTs || Date.now();
+      for (const ep of (d.places || [])) {
+        if (incomingIds.has(ep.id)) continue;
+        if (clientTs > (ep.updatedAt||0)) continue; // supprimé côté client
+        merged.push(ep);
+      }
+      d.places = merged;
     }
     if (b.settings !== undefined) {
       // Merge: ne pas perdre les settings serveur non envoyés par le client

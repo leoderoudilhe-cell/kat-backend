@@ -89,12 +89,12 @@ input, textarea { font-family: inherit; }
 }
 .nav-btn {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 4px 8px; border-radius: 10px; color: var(--text2);
+  padding: 4px 5px; border-radius: 10px; color: var(--text2);
   font-size: 10px; transition: color .2s;
-  min-width: 48px;
+  min-width: 40px; flex: 1;
 }
 .nav-btn.active { color: var(--kat); }
-.nav-btn svg, .nav-btn span.icon { font-size: 22px; }
+.nav-btn svg, .nav-btn span.icon { font-size: 21px; }
 
 /* ═══ COURSES ═══ */
 .courses-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:8px; }
@@ -508,6 +508,75 @@ input, textarea { font-family: inherit; }
 }
 .add-fab:active { transform: scale(0.92); }
 .countdown-badge { background: var(--kat); color: white; border-radius: 20px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+
+/* ═══ MES LIEUX (carte) ═══ */
+#places-wrap { position: absolute; inset: 0; overflow: hidden; }
+#pl-map { position: absolute; inset: 0; z-index: 1; background: var(--bg); }
+.leaflet-control-attribution { font-size: 9px !important; opacity: 0.7; }
+#pl-top { position: absolute; top: 10px; left: 10px; right: 10px; z-index: 400; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+#pl-top > * { pointer-events: auto; }
+#pl-search { width: 100%; border: none; background: var(--card); border-radius: 14px; padding: 11px 14px; font-size: 15px; color: var(--text); outline: none; box-shadow: var(--shadow); display: none; }
+#pl-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 1px; }
+#pl-chips::-webkit-scrollbar { display: none; }
+.pl-chip { flex-shrink: 0; font-size: 12px; font-weight: 700; padding: 7px 12px; border-radius: 20px; background: var(--card); color: var(--text2); box-shadow: var(--shadow); }
+.pl-chip.on { background: var(--kat2); color: #fff; }
+.pl-pinwrap { position: relative; width: 34px; height: 34px; }
+.pl-pin { width: 34px; height: 34px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 8px rgba(0,0,0,0.3); border: 2.5px solid #fff; }
+.pl-pin span { transform: rotate(45deg); font-size: 15px; }
+.pl-pin.wish { border-style: dashed; }
+.pl-score { position: absolute; top: -9px; right: -13px; background: #fff; color: var(--kat2); font-size: 11px; font-weight: 800; padding: 1px 6px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.25); border: 1.5px solid var(--kat); }
+.pl-me { width: 40px; height: 40px; border-radius: 50%; background: #fff; border: 3px solid var(--kat); box-shadow: 0 2px 10px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.pl-me svg { width: 30px; height: 30px; }
+.pl-me-pulse { position: absolute; inset: -8px; border-radius: 50%; background: rgba(244,114,182,0.25); animation: plpulse 2s ease-out infinite; }
+@keyframes plpulse { 0% { transform: scale(0.6); opacity: 0.8; } 100% { transform: scale(1.5); opacity: 0; } }
+#pl-fab { position: absolute; right: 16px; bottom: 150px; z-index: 350; width: 54px; height: 54px; border-radius: 50%; background: linear-gradient(135deg,var(--kat),var(--kat2)); color: #fff; font-size: 27px; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(var(--kat-rgb),0.45); }
+#pl-locate { position: absolute; right: 16px; bottom: 214px; z-index: 350; width: 46px; height: 46px; border-radius: 50%; background: var(--card); color: var(--kat2); font-size: 22px; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); }
+#pl-locate.on { background: var(--kat); color: #fff; }
+#pl-hint { position: absolute; left: 50%; transform: translateX(-50%); bottom: 150px; z-index: 350; background: #1C1C1E; color: #fff; font-size: 13px; font-weight: 600; padding: 10px 18px; border-radius: 20px; display: none; white-space: nowrap; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+#pl-sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 300; background: var(--card); border-radius: 20px 20px 0 0; box-shadow: 0 -6px 26px rgba(219,39,119,0.16); transition: transform .3s cubic-bezier(.32,.72,0,1); transform: translateY(calc(100% - 118px)); display: flex; flex-direction: column; max-height: 70%; }
+#pl-sheet.up { transform: translateY(0); }
+#pl-sheet-handle { padding: 9px 16px 5px; flex-shrink: 0; }
+#pl-sheet-handle .bar { width: 38px; height: 4.5px; background: var(--border); border-radius: 3px; margin: 0 auto 8px; }
+#pl-sheet-head { display: flex; align-items: center; justify-content: space-between; }
+#pl-count { font-size: 14px; font-weight: 800; }
+#pl-sort { border: none; background: var(--bg); border-radius: 10px; padding: 6px 8px; font-size: 12px; font-weight: 600; color: var(--text2); outline: none; }
+#pl-list { flex: 1; overflow-y: auto; padding: 2px 14px 14px; -webkit-overflow-scrolling: touch; }
+.pl-row { display: flex; gap: 11px; padding: 10px 2px; border-bottom: 1px solid var(--border); align-items: center; }
+.pl-thumb { width: 52px; height: 52px; border-radius: 13px; display: flex; align-items: center; justify-content: center; font-size: 23px; flex-shrink: 0; background-size: cover; background-position: center; }
+.pl-main { flex: 1; min-width: 0; }
+.pl-name { font-size: 15px; font-weight: 700; }
+.pl-sub { font-size: 12px; color: var(--text2); margin-top: 1px; }
+.pl-rownote { font-size: 12px; color: var(--text3); margin-top: 2px; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-scoremini { color: var(--kat2); font-weight: 800; }
+.pl-wishtag { font-size: 10px; font-weight: 700; background: color-mix(in srgb, var(--kat) 14%, var(--card)); color: var(--kat2); border-radius: 8px; padding: 2px 7px; }
+.crit-row { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; }
+.crit-name { font-size: 14px; font-weight: 600; }
+.crit-name small { color: var(--text2); font-weight: 500; }
+.crit-hearts { display: flex; gap: 4px; }
+.crit-hearts .h { font-size: 22px; color: var(--text3); line-height: 1; }
+.crit-hearts .h.on { color: var(--kat2); }
+.crit-hearts.ro .h { font-size: 16px; }
+.avg-box { display: flex; align-items: center; gap: 12px; background: color-mix(in srgb, var(--kat) 9%, var(--card)); border-radius: 14px; padding: 12px 14px; margin-top: 6px; }
+.avg-num { font-size: 30px; font-weight: 800; color: var(--kat2); line-height: 1; }
+.avg-num small { font-size: 14px; color: var(--text3); }
+.avg-word { font-size: 15px; font-weight: 800; color: var(--kat2); }
+.avg-sub { font-size: 11px; color: var(--text2); }
+.pl-cat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+.pl-cat-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 2px; border-radius: 12px; background: var(--bg); border: 2px solid transparent; font-size: 21px; }
+.pl-cat-cell small { font-size: 9px; font-weight: 700; color: var(--text2); }
+.pl-cat-cell.on { border-color: var(--kat); background: color-mix(in srgb, var(--kat) 10%, var(--card)); }
+.pl-wishrow { display: flex; gap: 8px; }
+.pl-wishopt { flex: 1; padding: 10px; border-radius: 12px; background: var(--bg); border: 2px solid transparent; font-size: 13px; font-weight: 700; color: var(--text2); text-align: center; }
+.pl-wishopt.on { border-color: var(--kat); background: color-mix(in srgb, var(--kat) 10%, var(--card)); color: var(--kat2); }
+#pl-photo-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.pl-ph { width: 76px; height: 76px; border-radius: 14px; object-fit: cover; }
+#pl-ph-add { width: 76px; height: 76px; border-radius: 14px; border: 2px dashed var(--border); display: flex; align-items: center; justify-content: center; font-size: 23px; background: var(--bg); }
+#pl-hero { display: flex; gap: 8px; overflow-x: auto; margin: 0 -18px 4px; padding: 0 18px; scrollbar-width: none; }
+#pl-hero::-webkit-scrollbar { display: none; }
+#pl-hero img { height: 150px; min-width: 130px; border-radius: 16px; object-fit: cover; }
+#pl-hero .noimg { height: 110px; width: 100%; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 46px; }
+.pl-dchip { font-size: 11px; padding: 3px 10px; border-radius: 20px; }
+.pl-dnote { background: var(--bg); border-radius: 12px; padding: 12px 14px; font-size: 14px; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -582,6 +651,10 @@ input, textarea { font-family: inherit; }
     <button class="nav-btn" data-tab="courses">
       <span class="icon">🛒</span>
       <span>Courses</span>
+    </button>
+    <button class="nav-btn" data-tab="places">
+      <span class="icon">📍</span>
+      <span>Lieux</span>
     </button>
   </div>
 </div>
@@ -889,6 +962,44 @@ input, textarea { font-family: inherit; }
   </div>
 </div>
 
+<!-- Lieux : fiche détail -->
+<div class="modal-overlay" id="pl-detail-ov" role="dialog" aria-label="Lieu">
+  <div class="modal-sheet" id="pl-detail"></div>
+</div>
+
+<!-- Lieux : formulaire -->
+<div class="modal-overlay" id="pl-form-ov" role="dialog" aria-label="Éditer le lieu">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="pl-form-title">Nouveau lieu</div>
+    <label class="form-label" for="pl-f-name">Nom du lieu</label>
+    <input class="form-input" id="pl-f-name" placeholder="Ex : La Môme, Plage du Midi…" maxlength="60">
+    <label class="form-label" style="margin-top:12px" for="pl-f-addr">Adresse <span style="text-transform:none;color:var(--text3);font-weight:500">(remplie automatiquement)</span></label>
+    <input class="form-input" id="pl-f-addr" placeholder="…" maxlength="120">
+    <label class="form-label" style="margin-top:12px">Catégorie</label>
+    <div class="pl-cat-grid" id="pl-cat-grid"></div>
+    <label class="form-label" style="margin-top:12px">Statut</label>
+    <div class="pl-wishrow">
+      <button class="pl-wishopt on" data-w="0">✅ Testé & approuvé</button>
+      <button class="pl-wishopt" data-w="1">💭 À tester</button>
+    </div>
+    <label class="form-label" style="margin-top:12px">Mon ressenti <span style="text-transform:none;color:var(--text3);font-weight:500">(note ce que tu veux)</span></label>
+    <div id="pl-crit-list"></div>
+    <div class="avg-box">
+      <div class="avg-num" id="pl-favg-num">–</div>
+      <div><div class="avg-word" id="pl-favg-word">Pas encore notée</div><div class="avg-sub" id="pl-favg-sub">Touche les cœurs au-dessus</div></div>
+    </div>
+    <label class="form-label" style="margin-top:12px" for="pl-f-note">Note perso</label>
+    <textarea class="form-input journal-textarea" id="pl-f-note" placeholder="Le petit truc à retenir…" maxlength="500"></textarea>
+    <label class="form-label" style="margin-top:12px">Photos (max 3)</label>
+    <div id="pl-photo-row"></div>
+    <label class="form-label" style="margin-top:12px" for="pl-f-tags">Tags</label>
+    <input class="form-input" id="pl-f-tags" placeholder="Ex : date night, entre copines" maxlength="80">
+    <button class="btn-primary" id="pl-f-save" style="margin-top:16px">Enregistrer 📍</button>
+    <button class="btn-ghost" id="pl-f-cancel" style="display:block;margin:12px auto 0">Annuler</button>
+  </div>
+</div>
+
 <script>
 // ═══ IDB WRAPPER ═══
 let _db = null;
@@ -974,6 +1085,7 @@ const S = {
   settings: {},
   courses: { items: [], suggestions: [] },
   ptodos: [],   // persistent todos (no date, stay forever)
+  places: [],   // lieux favoris { id, name, address, lat, lng, area, category, ratings{}, note, photos[], tags[], wish, createdAt, updatedAt }
 };
 let _undoStack = [];
 let _undoTimer = null;
@@ -1004,6 +1116,7 @@ async function loadAll() {
     S.settings = (await idbGet('kv','settings'))  || {};
     S.courses  = (await idbGet('kv','courses'))   || { items: [], suggestions: [] };
     S.ptodos   = (await idbGet('kv','ptodos'))    || [];
+    S.places   = (await idbGet('kv','places'))    || [];
 
     // Validate critical data — if all empty but we had backup, restore
     const evCount = Object.values(S.events).reduce((a,v) => a + (Array.isArray(v)?v.length:0), 0);
@@ -1043,6 +1156,7 @@ async function saveData() {
     await idbSet('kv','settings',S.settings);
     await idbSet('kv','courses', S.courses);
     await idbSet('kv','ptodos',  S.ptodos);
+    await idbSet('kv','places',  S.places);
 
     // Backup rotatif toutes les 5 sauvegardes (events + courses = données critiques)
     _saveCount++;
@@ -1141,6 +1255,10 @@ async function smartSyncFromServer() {
           if (serverStr !== JSON.stringify(S.ptodos)) { S.ptodos = data.ptodos; changed = true; }
         }
       }
+      if (data.places !== undefined) {
+        const merged = mergePlaces(S.places, data.places, serverUpdatedAt);
+        if (JSON.stringify(merged) !== JSON.stringify(S.places)) { S.places = merged; changed = true; }
+      }
       if (data.cats && data.cats.length) {
         const serverStr = JSON.stringify(data.cats);
         if (serverStr !== JSON.stringify(S.cats)) { S.cats = data.cats; changed = true; }
@@ -1163,6 +1281,7 @@ async function smartSyncFromServer() {
         await idbSet('kv','todos',   S.todos);
         await idbSet('kv','courses', S.courses);
         await idbSet('kv','ptodos',  S.ptodos);
+        await idbSet('kv','places',  S.places);
         await idbSet('kv','journal', S.journal);
         await idbSet('kv','cats',    S.cats);
         await idbSet('kv','settings',S.settings);
@@ -1188,6 +1307,7 @@ async function syncFromServer() {
     if (data.cats   && data.cats.length)  S.cats   = data.cats;
     if (data.courses && data.courses.items) S.courses = data.courses;
     if (data.ptodos  && data.ptodos.length > 0) S.ptodos = data.ptodos;
+    if (data.places !== undefined) S.places = mergePlaces(S.places, data.places, data._updatedAt || 0);
     if (data.settings) {
       S.settings = { ...S.settings, ...data.settings };
       // Applique le thème reçu (clair/rosé/sombre)
@@ -1261,9 +1381,18 @@ async function pushToServer() {
       }
     }
     const settingsClean = { dark: S.settings.dark, theme: S.settings.theme, soundName: S.settings.soundName, name: S.settings.name };
+    // Lieux : on compresse les photos pour la sync (gros base64 sinon)
+    const placesClean = [];
+    for (const p of S.places) {
+      const cp = { ...p };
+      if (p.photos && p.photos.length) {
+        try { cp.photos = await Promise.all(p.photos.slice(0, 3).map(ph => compressPhotoForSync(ph))); } catch(e) { cp.photos = []; }
+      }
+      placesClean.push(cp);
+    }
     const payload = {
       events: S.events, todos: S.todos, journal: journalClean,
-      cats: S.cats, courses: S.courses, ptodos: S.ptodos,
+      cats: S.cats, courses: S.courses, ptodos: S.ptodos, places: placesClean,
       settings: settingsClean,
       _clientTs: Date.now() // timestamp pour conflict resolution
     };
@@ -1533,6 +1662,10 @@ function render() {
     document.getElementById('view-tabs').style.display = 'none';
     document.getElementById('date-nav').style.display = 'none';
     renderCourses(content);
+  } else if (S.tab === 'places') {
+    document.getElementById('view-tabs').style.display = 'none';
+    document.getElementById('date-nav').style.display = 'none';
+    renderPlaces(content);
   }
   // Slide animation (feature 3)
   if (_lastSlideDir !== 0) {
@@ -1570,7 +1703,8 @@ function updateDateLabel() {
 }
 function updateFab() {
   const fab = document.getElementById('add-fab');
-  if (S.tab === 'stats') { fab.style.display = 'none'; return; }
+  // Stats et Lieux ont leur propre bouton (Lieux a un FAB dédié dans la carte)
+  if (S.tab === 'stats' || S.tab === 'places') { fab.style.display = 'none'; return; }
   fab.style.display = 'flex';
 }
 function setTab(tab) {
@@ -5768,6 +5902,405 @@ document.getElementById('course-save-btn').addEventListener('click', async () =>
   await addCourseItem(name, cat, qty);
   toast(`✅ ${name} ajouté`);
 });
+
+// ═══════════════════════════════════════════════
+//  MES LIEUX — carte interactive + notation + géoloc
+// ═══════════════════════════════════════════════
+const PLACE_CATS = [
+  { id:'resto',    name:'Resto',    e:'🍽️', c:'#DB2777' },
+  { id:'cafe',     name:'Café',     e:'☕',  c:'#B45309' },
+  { id:'bar',      name:'Bar',      e:'🍸',  c:'#7C3AED' },
+  { id:'plage',    name:'Plage',    e:'🏖️', c:'#0D9488' },
+  { id:'chill',    name:'Chill',    e:'🌅',  c:'#F59E0B' },
+  { id:'shopping', name:'Shopping', e:'🛍️', c:'#EC4899' },
+  { id:'beaute',   name:'Beauté',   e:'💅',  c:'#F472B6' },
+  { id:'sport',    name:'Sport',    e:'🏃',  c:'#16A34A' },
+  { id:'balade',   name:'Balade',   e:'🚶‍♀️', c:'#0EA5E9' },
+  { id:'work',     name:'Cowork',   e:'💻',  c:'#64748B' },
+  { id:'culture',  name:'Culture',  e:'🎭',  c:'#9333EA' },
+  { id:'autre',    name:'Autre',    e:'📌',  c:'#8E8E93' },
+];
+const plCat = id => PLACE_CATS.find(c => c.id === id) || PLACE_CATS[PLACE_CATS.length-1];
+const PLACE_CRITERIA = [
+  { id:'ambiance', e:'🌸', label:'Ambiance' },
+  { id:'qualite',  e:'😋', label:'Qualité',          sub:'goût / produit / expérience' },
+  { id:'prix',     e:'💰', label:'Rapport qualité-prix' },
+  { id:'cadre',    e:'🛋️', label:'Confort & cadre' },
+  { id:'revenir',  e:'✨', label:"Envie d'y revenir" },
+];
+function plAvg(p) {
+  const r = p.ratings || {};
+  const v = PLACE_CRITERIA.map(c => r[c.id]).filter(x => x > 0);
+  return v.length ? v.reduce((a,b)=>a+b,0)/v.length : 0;
+}
+function plRatingWord(a) {
+  if (!a) return 'Pas encore notée';
+  if (a >= 4.5) return 'Coup de cœur 💖';
+  if (a >= 3.5) return "J'adore";
+  if (a >= 2.5) return "J'aime bien";
+  if (a >= 1.5) return 'Sympa';
+  return 'Bof';
+}
+// Merge des lieux (par id) — préserve les photos locales si le serveur les a retirées, propage les suppressions
+function mergePlaces(local, server, serverUpdatedAt) {
+  local = Array.isArray(local) ? local : [];
+  server = Array.isArray(server) ? server : [];
+  const byId = {}; local.forEach(p => byId[p.id] = p);
+  const serverIds = new Set(server.map(p => p.id));
+  const out = [];
+  for (const sp of server) {
+    const lp = byId[sp.id];
+    if (!lp) { out.push(sp); continue; }
+    const winner = (sp.updatedAt||0) >= (lp.updatedAt||0) ? sp : lp;
+    const m = { ...winner };
+    const lph = lp.photos||[], sph = sp.photos||[];
+    m.photos = (winner.photos && winner.photos.length) ? winner.photos : (lph.length ? lph : sph);
+    out.push(m);
+  }
+  // lieux locaux absents du serveur : gardés sauf si le serveur est plus récent que le lieu (= supprimé ailleurs)
+  for (const lp of local) {
+    if (serverIds.has(lp.id)) continue;
+    if ((serverUpdatedAt||0) > (lp.updatedAt||0)) continue; // suppression propagée
+    out.push(lp);
+  }
+  return out;
+}
+
+// Lazy-load Leaflet (CDN) au 1er affichage de l'onglet
+let _leafletLoading = null;
+function ensureLeaflet() {
+  if (typeof L !== 'undefined') return Promise.resolve();
+  if (_leafletLoading) return _leafletLoading;
+  _leafletLoading = new Promise((resolve, reject) => {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(css);
+    const js = document.createElement('script');
+    js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    js.onload = () => resolve();
+    js.onerror = () => reject(new Error('Leaflet load failed'));
+    document.head.appendChild(js);
+  });
+  return _leafletLoading;
+}
+
+const CAT_HEAD_SVG = `<svg viewBox="0 0 100 100"><polygon points="20,40 15,12 40,32" fill="#F9A8D4"/><polygon points="80,40 85,12 60,32" fill="#F9A8D4"/><circle cx="50" cy="58" r="32" fill="#F472B6"/><ellipse cx="38" cy="52" rx="5" ry="6.5" fill="#fff"/><ellipse cx="62" cy="52" rx="5" ry="6.5" fill="#fff"/><ellipse cx="50" cy="64" rx="3" ry="2.2" fill="#fff"/></svg>`;
+
+let _plWrap = null, _plMap = null, _plMarkers = {}, _plActiveCat = 'all', _plQuery = '';
+let _plMeMarker = null, _plGeoWatch = null, _plAdding = false, _plTemp = null;
+
+function renderPlaces(container) {
+  if (!_plWrap) { _plWrap = document.createElement('div'); _plWrap.id = 'places-wrap'; buildPlacesShell(); }
+  container.innerHTML = '';
+  container.appendChild(_plWrap);
+  ensureLeaflet().then(() => {
+    initPlacesMap();
+    plRenderAll();
+    [60, 250, 600].forEach(t => setTimeout(() => { if (_plMap) _plMap.invalidateSize(); }, t));
+  }).catch(() => {
+    // Hors-ligne / CDN bloqué : on montre au moins le listing
+    document.getElementById('pl-map').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text2);font-size:14px;padding:20px;text-align:center">Carte indisponible hors-ligne — ta liste reste accessible en bas 👇</div>';
+    document.getElementById('pl-sheet').classList.add('up');
+    plRenderList();
+  });
+}
+
+function buildPlacesShell() {
+  _plWrap.innerHTML = `
+    <div id="pl-map"></div>
+    <div id="pl-top">
+      <div id="pl-chips"></div>
+      <input id="pl-search" type="search" placeholder="Chercher un lieu enregistré…">
+    </div>
+    <button id="pl-locate" title="Où suis-je ?">🐱</button>
+    <button id="pl-fab" title="Ajouter un lieu">＋</button>
+    <div id="pl-hint">👆 Touche la carte pour poser le lieu</div>
+    <div id="pl-sheet">
+      <div id="pl-sheet-handle"><div class="bar"></div>
+        <div id="pl-sheet-head"><span id="pl-count">Mes lieux</span>
+          <select id="pl-sort">
+            <option value="recent">Plus récents</option>
+            <option value="rating">Mieux notés</option>
+            <option value="name">A → Z</option>
+            <option value="area">Par quartier</option>
+          </select>
+        </div>
+      </div>
+      <div id="pl-list"></div>
+    </div>`;
+  // FAB + recentrage
+  _plWrap.querySelector('#pl-fab').onclick = () => {
+    _plAdding = true; _plWrap.querySelector('#pl-sheet').classList.remove('up');
+    _plWrap.querySelector('#pl-hint').style.display = 'block';
+  };
+  _plWrap.querySelector('#pl-locate').onclick = plLocate;
+  // recherche
+  _plWrap.querySelector('#pl-search').addEventListener('input', e => { _plQuery = e.target.value.trim().toLowerCase(); plRenderList(); plDrawMarkers(); });
+  // tri
+  _plWrap.querySelector('#pl-sort').onchange = plRenderList;
+  window.addEventListener('resize', () => { if (_plMap && S.tab === 'places') _plMap.invalidateSize(); });
+  // sheet
+  const sheet = _plWrap.querySelector('#pl-sheet');
+  _plWrap.querySelector('#pl-sheet-handle').addEventListener('click', () => sheet.classList.toggle('up'));
+  let ty = null;
+  sheet.addEventListener('touchstart', e => { ty = e.touches[0].clientY; }, { passive: true });
+  sheet.addEventListener('touchend', e => {
+    if (ty === null) return;
+    const dy = e.changedTouches[0].clientY - ty;
+    if (dy < -40) sheet.classList.add('up');
+    if (dy > 40 && _plWrap.querySelector('#pl-list').scrollTop <= 0) sheet.classList.remove('up');
+    ty = null;
+  }, { passive: true });
+}
+
+function initPlacesMap() {
+  if (_plMap) return;
+  _plMap = L.map(_plWrap.querySelector('#pl-map'), { zoomControl: false, attributionControl: true }).setView([43.5513, 7.0128], 14);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap · CARTO', maxZoom: 19
+  }).addTo(_plMap);
+  _plMap.on('click', plMapClick);
+}
+
+function plPinIcon(p) {
+  const c = plCat(p.category), a = plAvg(p);
+  return L.divIcon({ className: '', iconSize: [34,34], iconAnchor: [10,32],
+    html: `<div class="pl-pinwrap"><div class="pl-pin ${p.wish?'wish':''}" style="background:${c.c}"><span>${c.e}</span></div>${a?`<div class="pl-score">${a.toFixed(1)}</div>`:''}</div>` });
+}
+function plDrawMarkers() {
+  if (!_plMap) return;
+  Object.values(_plMarkers).forEach(m => _plMap.removeLayer(m));
+  _plMarkers = {};
+  for (const p of plFiltered()) {
+    const m = L.marker([p.lat, p.lng], { icon: plPinIcon(p) }).addTo(_plMap);
+    m.on('click', () => plOpenDetail(p.id));
+    _plMarkers[p.id] = m;
+  }
+}
+function plFiltered() {
+  let arr = S.places.filter(p =>
+    (_plActiveCat === 'all' || (_plActiveCat === 'wish' ? p.wish : p.category === _plActiveCat)) &&
+    (!_plQuery || (p.name + ' ' + (p.address||'') + ' ' + (p.area||'') + ' ' + (p.tags||[]).join(' ')).toLowerCase().includes(_plQuery)));
+  const s = _plWrap.querySelector('#pl-sort').value;
+  if (s === 'rating') arr.sort((a,b) => plAvg(b) - plAvg(a));
+  else if (s === 'name') arr.sort((a,b) => a.name.localeCompare(b.name));
+  else if (s === 'area') arr.sort((a,b) => (a.area||'').localeCompare(b.area||''));
+  else arr.sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+  return arr;
+}
+function plRenderChips() {
+  const counts = {}; S.places.forEach(p => counts[p.category] = (counts[p.category]||0)+1);
+  const wishCount = S.places.filter(p=>p.wish).length;
+  let html = `<button class="pl-chip ${_plActiveCat==='all'?'on':''}" data-c="all">Tous (${S.places.length})</button>`;
+  html += `<button class="pl-chip ${_plActiveCat==='wish'?'on':''}" data-c="wish">💭 À tester (${wishCount})</button>`;
+  for (const c of PLACE_CATS) if (counts[c.id]) html += `<button class="pl-chip ${_plActiveCat===c.id?'on':''}" data-c="${c.id}">${c.e} ${c.name} (${counts[c.id]})</button>`;
+  const el = _plWrap.querySelector('#pl-chips');
+  el.innerHTML = html;
+  el.querySelectorAll('.pl-chip').forEach(ch => ch.onclick = () => { _plActiveCat = ch.dataset.c; plRenderAll(); });
+}
+function plRenderList() {
+  const arr = plFiltered();
+  _plWrap.querySelector('#pl-count').textContent = `Mes lieux (${arr.length})`;
+  const list = _plWrap.querySelector('#pl-list');
+  if (!arr.length) { list.innerHTML = '<div style="text-align:center;padding:26px;color:var(--text2)">Aucun lieu — touche ＋ pour en ajouter 📍</div>'; return; }
+  list.innerHTML = arr.map(p => {
+    const c = plCat(p.category), a = plAvg(p);
+    const th = p.photos && p.photos[0] ? `style="background-image:url(${p.photos[0]})"` : `style="background:color-mix(in srgb, ${c.c} 16%, var(--card))"`;
+    return `<div class="pl-row" data-id="${escHtml(p.id)}">
+      <div class="pl-thumb" ${th}>${p.photos && p.photos[0] ? '' : c.e}</div>
+      <div class="pl-main">
+        <div class="pl-name">${escHtml(p.name)} ${p.wish?'<span class="pl-wishtag">À tester</span>':''}</div>
+        <div class="pl-sub">${escHtml(p.area || (p.address||'').split(',')[0])} · ${c.name} ${a?`· <span class="pl-scoremini">♥ ${a.toFixed(1)}</span>`:''}</div>
+        ${p.note?`<div class="pl-rownote">« ${escHtml(p.note)} »</div>`:''}
+      </div><div style="color:var(--text3);font-size:17px">›</div></div>`;
+  }).join('');
+  list.querySelectorAll('.pl-row').forEach(row => row.onclick = () => {
+    const p = S.places.find(x => x.id === row.dataset.id); if (!p) return;
+    _plWrap.querySelector('#pl-sheet').classList.remove('up');
+    if (_plMap) _plMap.flyTo([p.lat, p.lng], 16, { duration: 0.6 });
+    setTimeout(() => plOpenDetail(p.id), 600);
+  });
+}
+function plRenderAll() { plRenderChips(); plRenderList(); plDrawMarkers(); }
+
+// ── Géolocalisation live (tête de chat) ──
+function plLocate() {
+  if (!navigator.geolocation) { toast('📍 Géoloc non supportée'); return; }
+  const btn = _plWrap.querySelector('#pl-locate');
+  if (_plMeMarker) { // déjà localisée → recentre
+    _plMap.flyTo(_plMeMarker.getLatLng(), 16, { duration: 0.6 });
+    haptic(15); return;
+  }
+  btn.textContent = '⏳';
+  navigator.geolocation.getCurrentPosition(pos => {
+    btn.textContent = '🐱'; btn.classList.add('on');
+    plUpdateMe(pos);
+    _plMap.flyTo([pos.coords.latitude, pos.coords.longitude], 16, { duration: 0.8 });
+    haptic([30,20,30]);
+    // suivi live
+    _plGeoWatch = navigator.geolocation.watchPosition(plUpdateMe, () => {}, { enableHighAccuracy: true, maximumAge: 10000 });
+  }, err => {
+    btn.textContent = '🐱';
+    toast(err.code === 1 ? '📍 Autorise la localisation dans Réglages' : '📍 Position introuvable');
+  }, { enableHighAccuracy: true, timeout: 10000 });
+}
+function plUpdateMe(pos) {
+  const ll = [pos.coords.latitude, pos.coords.longitude];
+  if (!_plMeMarker) {
+    const icon = L.divIcon({ className: '', iconSize: [40,40], iconAnchor: [20,20],
+      html: `<div class="pl-me-pulse"></div><div class="pl-me">${CAT_HEAD_SVG}</div>` });
+    _plMeMarker = L.marker(ll, { icon, zIndexOffset: 1000 }).addTo(_plMap);
+  } else {
+    _plMeMarker.setLatLng(ll);
+  }
+}
+
+// ── Ajout par tap sur la carte ──
+async function plMapClick(e) {
+  if (!_plAdding) return;
+  _plAdding = false;
+  _plWrap.querySelector('#pl-hint').style.display = 'none';
+  if (_plTemp) _plMap.removeLayer(_plTemp);
+  _plTemp = L.marker(e.latlng, { icon: L.divIcon({ className:'', iconSize:[34,34], iconAnchor:[10,32], html:'<div class="pl-pinwrap"><div class="pl-pin" style="background:#F472B6"><span>📍</span></div></div>' }) }).addTo(_plMap);
+  plOpenForm(null, e.latlng);
+  const addr = document.getElementById('pl-f-addr');
+  addr.value = 'Recherche de l\'adresse…';
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${e.latlng.lat}&lon=${e.latlng.lng}&format=json&accept-language=fr`);
+    const d = await r.json(); const a = d.address || {};
+    const line = [a.house_number, a.road].filter(Boolean).join(' ') || (d.display_name||'').split(',')[0] || '';
+    addr.value = line + (a.city || a.town ? ', ' + (a.city || a.town) : '');
+    _plEditArea = a.suburb || a.neighbourhood || a.quarter || '';
+  } catch(err) { addr.value = ''; }
+}
+
+// ── Fiche détail (lecture) ──
+let _plDetailId = null;
+function plHeartsRO(v) { return `<div class="crit-hearts ro">${[1,2,3,4,5].map(i=>`<span class="h ${i<=v?'on':''}">♥</span>`).join('')}</div>`; }
+function plOpenDetail(id) {
+  const p = S.places.find(x => x.id === id); if (!p) return;
+  _plDetailId = id;
+  const c = plCat(p.category), a = plAvg(p);
+  const rated = PLACE_CRITERIA.filter(cr => (p.ratings||{})[cr.id] > 0);
+  let h = '<div class="modal-handle"></div>';
+  if (p.photos && p.photos.length) h += `<div id="pl-hero">${p.photos.map((s,i)=>`<img src="${escHtml(s)}" data-i="${i}">`).join('')}</div>`;
+  else h += `<div id="pl-hero"><div class="noimg" style="background:color-mix(in srgb, ${c.c} 12%, var(--card))">${c.e}</div></div>`;
+  h += `<div style="display:flex;align-items:center;gap:8px;margin-top:10px"><div style="font-size:21px;font-weight:800;flex:1">${escHtml(p.name)}</div>${p.wish?'<span class="pl-wishtag">💭 À tester</span>':''}</div>`;
+  h += `<div style="font-size:13px;color:var(--text2);margin-top:3px">📍 ${escHtml(p.address||'')}${p.area?` · ${escHtml(p.area)}`:''}</div>`;
+  h += `<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap"><span class="pl-dchip" style="background:color-mix(in srgb, ${c.c} 18%, var(--card));color:${c.c}">${c.e} ${c.name}</span>${(p.tags||[]).map(t=>`<span class="pl-dchip" style="background:color-mix(in srgb, var(--kat) 12%, var(--card));color:var(--kat2)">#${escHtml(t)}</span>`).join('')}</div>`;
+  if (a) {
+    h += `<div class="avg-box" style="margin-top:14px"><div class="avg-num">${a.toFixed(1)}<small>/5</small></div><div><div class="avg-word">${plRatingWord(a)}</div><div class="avg-sub">moyenne de ${rated.length} critère${rated.length>1?'s':''}</div></div></div>`;
+    h += `<div style="margin-top:8px">${rated.map(cr=>`<div class="crit-row"><div class="crit-name">${cr.e} ${cr.label}</div>${plHeartsRO(p.ratings[cr.id])}</div>`).join('')}</div>`;
+  } else {
+    h += `<div class="avg-box" style="margin-top:14px"><div style="font-size:24px">💭</div><div><div class="avg-word">Pas encore notée</div><div class="avg-sub">« Modifier » pour donner ton ressenti</div></div></div>`;
+  }
+  if (p.note) h += `<label class="form-label" style="margin-top:12px">Ma note</label><div class="pl-dnote">${escHtml(p.note)}</div>`;
+  h += `<div style="display:flex;gap:8px;margin-top:16px">
+    <button class="btn-ghost" id="pl-d-route" style="flex:1;background:var(--bg);border-radius:12px;padding:12px;font-weight:700">🧭 Itinéraire</button>
+    <button class="btn-ghost" id="pl-d-edit" style="flex:1;background:linear-gradient(135deg,var(--kat),var(--kat2));color:#fff;border-radius:12px;padding:12px;font-weight:700">✏️ Modifier</button>
+    <button class="btn-danger" id="pl-d-del" style="background:#FEF2F2;border-radius:12px;padding:12px 16px">🗑</button></div>`;
+  const m = document.getElementById('pl-detail');
+  m.innerHTML = h; m.scrollTop = 0;
+  document.getElementById('pl-detail-ov').classList.add('open');
+  m.querySelectorAll('#pl-hero img').forEach(img => img.onclick = () => openLightbox(p.photos, +img.dataset.i));
+  document.getElementById('pl-d-route').onclick = () => openInMaps(`${p.lat},${p.lng}`);
+  document.getElementById('pl-d-edit').onclick = () => { plCloseDetail(); plOpenForm(id); };
+  document.getElementById('pl-d-del').onclick = async () => {
+    S.places = S.places.filter(x => x.id !== id);
+    touchPlaces(); plCloseDetail(); await saveData(); plRenderAll(); toast(`🗑 « ${p.name} » supprimé`);
+  };
+}
+function plCloseDetail() { document.getElementById('pl-detail-ov').classList.remove('open'); _plDetailId = null; }
+document.getElementById('pl-detail-ov').addEventListener('click', e => { if (e.target.id === 'pl-detail-ov') plCloseDetail(); });
+
+// ── Formulaire (création / édition) ──
+let _plEditId = null, _plEditLL = null, _plSelCat = 'resto', _plSelWish = false, _plPhotos = [], _plEditArea = '', _plCritVals = {};
+// marqueur "données lieux modifiées" → force le push même si rien d'autre n'a bougé
+function touchPlaces() { /* updatedAt déjà posé sur chaque lieu modifié */ }
+function plBuildCatGrid() {
+  document.getElementById('pl-cat-grid').innerHTML = PLACE_CATS.map(c => `<button class="pl-cat-cell ${c.id===_plSelCat?'on':''}" data-c="${c.id}">${c.e}<small>${c.name}</small></button>`).join('');
+  document.querySelectorAll('#pl-cat-grid .pl-cat-cell').forEach(b => b.onclick = () => { _plSelCat = b.dataset.c; plBuildCatGrid(); });
+}
+function plRefreshAvg() {
+  const v = PLACE_CRITERIA.map(c => _plCritVals[c.id]).filter(x => x > 0);
+  const a = v.length ? v.reduce((x,y)=>x+y,0)/v.length : 0;
+  document.getElementById('pl-favg-num').innerHTML = a ? `${a.toFixed(1)}<small>/5</small>` : '–';
+  document.getElementById('pl-favg-word').textContent = plRatingWord(a);
+  document.getElementById('pl-favg-sub').textContent = a ? `moyenne de ${v.length} critère${v.length>1?'s':''}` : 'Touche les cœurs au-dessus';
+}
+function plBuildCrits() {
+  document.getElementById('pl-crit-list').innerHTML = PLACE_CRITERIA.map(cr => {
+    const v = _plCritVals[cr.id] || 0;
+    return `<div class="crit-row"><div class="crit-name">${cr.e} ${cr.label}${cr.sub?`<br><small>${cr.sub}</small>`:''}</div><div class="crit-hearts" data-c="${cr.id}">${[1,2,3,4,5].map(i=>`<span class="h ${i<=v?'on':''}" data-v="${i}">♥</span>`).join('')}</div></div>`;
+  }).join('');
+  document.querySelectorAll('#pl-crit-list .crit-hearts').forEach(row => row.querySelectorAll('.h').forEach(hh => hh.onclick = () => {
+    const cid = row.dataset.c, v = +hh.dataset.v;
+    _plCritVals[cid] = (_plCritVals[cid] === v) ? 0 : v;
+    plBuildCrits(); plRefreshAvg();
+  }));
+}
+function plBuildWish() {
+  document.querySelectorAll('#pl-form-ov .pl-wishopt').forEach(b => {
+    b.classList.toggle('on', (b.dataset.w === '1') === _plSelWish);
+    b.onclick = () => { _plSelWish = b.dataset.w === '1'; plBuildWish(); };
+  });
+}
+function plBuildPhotos() {
+  let html = _plPhotos.map((src,i) => `<img class="pl-ph" src="${escHtml(src)}" data-i="${i}" title="Tap pour retirer">`).join('');
+  if (_plPhotos.length < 3) html += '<label id="pl-ph-add">📷<input type="file" accept="image/*" style="display:none" id="pl-ph-input"></label>';
+  document.getElementById('pl-photo-row').innerHTML = html;
+  document.querySelectorAll('#pl-photo-row .pl-ph').forEach(img => img.onclick = () => { _plPhotos.splice(+img.dataset.i,1); plBuildPhotos(); });
+  const inp = document.getElementById('pl-ph-input');
+  if (inp) inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    try { _plPhotos.push(await compressImage(f, 800, 0.7)); plBuildPhotos(); } catch(e) {}
+  };
+}
+function plOpenForm(id, latlng) {
+  _plEditId = id; _plEditLL = latlng || null;
+  const p = id ? S.places.find(x => x.id === id) : null;
+  document.getElementById('pl-form-title').textContent = p ? 'Modifier le lieu' : 'Nouveau lieu 📍';
+  document.getElementById('pl-f-name').value = p ? p.name : '';
+  document.getElementById('pl-f-addr').value = p ? (p.address||'') : '';
+  document.getElementById('pl-f-note').value = p ? (p.note||'') : '';
+  document.getElementById('pl-f-tags').value = p ? (p.tags||[]).join(', ') : '';
+  _plSelCat = p ? p.category : 'resto';
+  _plSelWish = p ? !!p.wish : false;
+  _plPhotos = p ? [...(p.photos||[])] : [];
+  _plCritVals = p ? { ...(p.ratings||{}) } : {};
+  _plEditArea = p ? (p.area||'') : _plEditArea;
+  plBuildCatGrid(); plBuildCrits(); plRefreshAvg(); plBuildWish(); plBuildPhotos();
+  document.getElementById('pl-form-ov').classList.add('open');
+  if (!p) setTimeout(() => document.getElementById('pl-f-name').focus(), 350);
+}
+function plCloseForm() {
+  document.getElementById('pl-form-ov').classList.remove('open');
+  if (_plTemp && _plMap) { _plMap.removeLayer(_plTemp); _plTemp = null; }
+  if (_plWrap) _plWrap.querySelector('#pl-hint').style.display = 'none';
+  _plAdding = false;
+}
+document.getElementById('pl-f-cancel').onclick = plCloseForm;
+document.getElementById('pl-form-ov').addEventListener('click', e => { if (e.target.id === 'pl-form-ov') plCloseForm(); });
+document.getElementById('pl-f-save').onclick = async () => {
+  const name = document.getElementById('pl-f-name').value.trim();
+  if (!name) { toast('⚠️ Donne un nom au lieu'); return; }
+  const ratings = {}; PLACE_CRITERIA.forEach(c => { if (_plCritVals[c.id] > 0) ratings[c.id] = _plCritVals[c.id]; });
+  const data = {
+    name, address: document.getElementById('pl-f-addr').value.trim(), area: _plEditArea,
+    category: _plSelCat, ratings, wish: _plSelWish,
+    note: document.getElementById('pl-f-note').value.trim(),
+    tags: document.getElementById('pl-f-tags').value.split(',').map(s=>s.trim()).filter(Boolean),
+    photos: [..._plPhotos], updatedAt: Date.now(),
+  };
+  if (_plEditId) {
+    Object.assign(S.places.find(x => x.id === _plEditId), data);
+    toast('✅ Lieu modifié');
+  } else {
+    S.places.push({ id: uid(), lat: _plEditLL.lat, lng: _plEditLL.lng, createdAt: Date.now(), ...data });
+    toast('📍 Lieu ajouté !');
+  }
+  plCloseForm(); await saveData(); plRenderAll();
+};
 
 // ═══ ICONE IOS ═══
 // iOS ne supporte ni SVG ni data-URI pour apple-touch-icon → vrai fichier /icon-180.png.
